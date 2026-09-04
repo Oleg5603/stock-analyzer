@@ -94,4 +94,18 @@ $('#companies').addEventListener('click', (event) => {
   $('#ticker').value = button.dataset.ticker; $('#analysis').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 $('#analysis-form').addEventListener('submit', analyze);
-loadCompanies().catch(() => announce('Сервер недоступен. Запустите приложение командой из README.'));
+async function initialize() {
+  try {
+    await loadCompanies();
+    if (!state.companies.length) {
+      announce('Автозагрузка: получаю список TQBR и цены из публичного MOEX ISS…');
+      const response = await fetch('/api/import/moex', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Не удалось получить данные MOEX');
+      announce(`MOEX ISS: загружено ${result.accepted}. Категории и признаки методики требуют ручной проверки.`);
+      await loadCompanies();
+    }
+  } catch (error) { announce(error.message || 'Сервер недоступен. Запустите приложение командой из README.'); }
+}
+
+initialize();
