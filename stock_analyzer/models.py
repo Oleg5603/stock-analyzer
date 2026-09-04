@@ -36,6 +36,8 @@ class Company:
     h4_confirmed: bool | None = None
     volume_profile_confirmed: bool | None = None
     evidence: str = ""
+    last_price: float | None = None
+    price_updated_at: str = ""
 
     def __post_init__(self) -> None:
         if not self.ticker.strip():
@@ -62,6 +64,8 @@ class Company:
             h4_confirmed=_optional_bool(row.get("h4_confirmed")),
             volume_profile_confirmed=_optional_bool(row.get("volume_profile_confirmed")),
             evidence=str(row.get("evidence", "")).strip(),
+            last_price=_optional_float(row.get("last_price")),
+            price_updated_at=str(row.get("price_updated_at", "")).strip(),
         )
 
 

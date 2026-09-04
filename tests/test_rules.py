@@ -2,6 +2,7 @@ import unittest
 
 from stock_analyzer.csvio import import_companies_csv
 from stock_analyzer.models import Company, PortfolioPosition
+from stock_analyzer.moex import companies_from_iss
 from stock_analyzer.rules import analyze_company
 
 
@@ -36,6 +37,13 @@ class RulesTests(unittest.TestCase):
         result = import_companies_csv(data)
         self.assertEqual(len(result.companies), 1)
         self.assertEqual(len(result.errors), 1)
+
+    def test_moex_payload_creates_manual_review_draft(self):
+        payload = {"securities": {"columns": ["SECID", "SECNAME", "STATUS"], "data": [["MOEX", "Мосбиржа", "A"]]}, "marketdata": {"columns": ["SECID", "LAST", "MARKETPRICE"], "data": [["MOEX", 191.2, 190.0]]}}
+        company = companies_from_iss(payload)[0]
+        self.assertEqual(company.ticker, "MOEX")
+        self.assertEqual(company.last_price, 191.2)
+        self.assertIsNone(company.category)
 
 
 if __name__ == "__main__":

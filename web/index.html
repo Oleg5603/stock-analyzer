@@ -32,13 +32,13 @@
       <section class="workspace" aria-label="Рабочая область">
         <div class="section-heading">
           <div><p class="eyebrow">РЕЕСТР</p><h2>Компании на проверке</h2></div>
-          <label class="import-button"><input id="csv-file" type="file" accept=".csv,text/csv">Загрузить CSV</label>
+          <div class="import-actions"><button id="moex-import" type="button" class="moex-button">Обновить с MOEX</button><label class="import-button"><input id="csv-file" type="file" accept=".csv,text/csv">Загрузить CSV</label></div>
         </div>
         <p class="hint">Обязательные колонки: ticker, name, sector. Остальные — category, is_bank, fundamental_passed, bank_metrics_passed, d1_confirmed, h4_confirmed, volume_profile_confirmed, evidence.</p>
         <div id="import-message" class="message" role="status"></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Тикер</th><th>Компания</th><th>Сектор</th><th>Кат.</th><th>Фундамент</th><th>Техника</th><th></th></tr></thead>
+            <thead><tr><th>Тикер</th><th>Компания</th><th>Цена</th><th>Сектор</th><th>Кат.</th><th>Фундамент</th><th>Техника</th><th></th></tr></thead>
             <tbody id="companies"><tr><td colspan="7" class="empty">Загрузите CSV с компаниями или используйте учебный пример.</td></tr></tbody>
           </table>
         </div>

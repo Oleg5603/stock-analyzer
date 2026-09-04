@@ -69,6 +69,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             if path == "/api/import/companies.csv":
                 self._send(200, self.service.import_csv(raw.decode("utf-8-sig")))
                 return
+            if path == "/api/import/moex":
+                self._send(200, self.service.import_moex())
+                return
             payload = json.loads(raw or b"{}")
             if path == "/api/analyze":
                 self._send(200, self.service.analyze(payload))

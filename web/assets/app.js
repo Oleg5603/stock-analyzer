@@ -16,11 +16,11 @@ function announce(text) {
 function renderCompanies() {
   const target = $('#companies');
   if (!state.companies.length) {
-    target.innerHTML = '<tr><td colspan="7" class="empty">Загрузите CSV с компаниями.</td></tr>';
+    target.innerHTML = '<tr><td colspan="8" class="empty">Загрузите CSV или обновите список с MOEX.</td></tr>';
     return;
   }
   target.innerHTML = state.companies.map((company) => `<tr>
-    <td>${company.ticker}</td><td>${company.name}</td><td>${company.sector}</td>
+    <td>${company.ticker}</td><td>${company.name}</td><td>${company.last_price == null ? '—' : company.last_price.toLocaleString('ru-RU')}</td><td>${company.sector}</td>
     <td>${company.category ?? '—'}</td>
     <td>${flag(company.is_bank ? company.bank_metrics_passed : company.fundamental_passed)}</td>
     <td>${flag(company.d1_confirmed && company.h4_confirmed && company.volume_profile_confirmed)}</td>
@@ -74,6 +74,19 @@ $('#csv-file').addEventListener('change', async (event) => {
   if (!response.ok) { announce(result.error || 'Импорт не выполнен'); return; }
   announce(`Принято: ${result.accepted}. Отклонено: ${result.rejected}. Всего в реестре: ${result.total}.`);
   await loadCompanies();
+});
+
+$('#moex-import').addEventListener('click', async () => {
+  const button = $('#moex-import');
+  button.disabled = true; button.textContent = 'Загружаю…'; announce('Получаю список TQBR и цены из публичного MOEX ISS…');
+  try {
+    const response = await fetch('/api/import/moex', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Не удалось получить данные MOEX');
+    announce(`${result.source}: добавлено ${result.accepted}. ${result.note}`);
+    await loadCompanies();
+  } catch (error) { announce(error.message); }
+  finally { button.disabled = false; button.textContent = 'Обновить с MOEX'; }
 });
 
 $('#companies').addEventListener('click', (event) => {
