@@ -1,0 +1,101 @@
+{
+  "schema_version": "0.1",
+  "strategy": "active_stock_investing",
+  "disclaimer": "Учебная формализация, не персональная инвестиционная рекомендация.",
+  "sources": [
+    {"id": "pdf", "title": "Стратегия активного инвестирования в акции (1)", "pages": 141},
+    {"id": "video_1", "kinescope_id": "v4xujdTzDPC3ezuKK8kt2T", "duration": "00:20:45", "timestamp_accuracy_seconds": 7},
+    {"id": "video_2", "kinescope_id": "kVaXDUzfXpL8BStGCqdayy", "duration": "00:28:11", "timestamp_accuracy_seconds": 7}
+  ],
+  "universe": {
+    "market": "MOEX",
+    "index": "broad_market",
+    "exclude_low_cap": true,
+    "low_cap_threshold": null,
+    "sector_max_portfolio_share_pct": 20,
+    "shortlist_size": {"min": 6, "max": 12},
+    "monthly_watchlist_max": 15,
+    "sources": [{"source": "pdf", "pages": "18-23,39-42"}, {"source": "video_1", "timestamp": "00:03:33-00:05:36"}],
+    "ambiguity": ["low_cap_threshold", "shortlist_6_12_vs_monthly_watchlist_10_15"],
+    "manual_review": true
+  },
+  "non_bank_categories": {
+    "category_1": {
+      "reliability": "reliable",
+      "potential": "large",
+      "rules": {"revenue_trend": "up", "debt_trend": "down", "equity_trend": "up", "operating_profit_trend": "up", "fcf_trend": "up", "debt_to_ebitda_max": 2.5, "short_term_liabilities_to_ebitda_max": 1.0, "growth_potential_pct_min": 30},
+      "position_pct": {"min": 8, "max": 10},
+      "sources": [{"source": "pdf", "pages": "13,31,34,88,97"}, {"source": "video_1", "timestamp": "00:01:40-00:02:07"}]
+    },
+    "category_2": {
+      "reliability": "reliable",
+      "potential": "small",
+      "rules": {"revenue_trend": "up", "debt_trend": "may_increase", "equity_trend": "up", "operating_profit_trend": "up", "fcf_min": 0, "debt_to_ebitda_max": 3.0, "short_term_liabilities_to_ebitda_max": 1.0, "growth_potential_pct_min": 10, "growth_potential_pct_max_exclusive": 30},
+      "position_pct": {"min": 6, "max": 8},
+      "sources": [{"source": "pdf", "pages": "14,31,34,88,97"}, {"source": "video_1", "timestamp": "00:02:07-00:02:38"}]
+    },
+    "category_3": {
+      "reliability": "unreliable",
+      "potential": "large",
+      "rules": {"three_year_revenue_decline_pct_max": 30, "debt_trend": "may_increase", "three_year_equity_decline_pct_max": 10, "three_year_operating_profit_decline_pct_max": 30, "fcf_negative_allowed": true, "debt_to_ebitda_min_exclusive": 3.0, "debt_to_ebitda_max": 4.0, "growth_potential_pct_min": 50},
+      "position_pct": {"min": 4, "max": 6},
+      "sources": [{"source": "pdf", "pages": "15,31,89-90,97"}, {"source": "video_1", "timestamp": "00:02:38-00:03:10"}],
+      "ambiguity": ["PDF page 31 says debt_to_ebitda_max=3.5; PDF category table and video say 4.0"],
+      "manual_review": true
+    },
+    "category_4": {
+      "reliability": "unreliable",
+      "potential": "small",
+      "eligible": false,
+      "sources": [{"source": "pdf", "pages": "16-17"}, {"source": "video_1", "timestamp": "00:03:10-00:03:25"}]
+    },
+    "assignment_policy": {"mode": "all_required_rules", "missing_data_result": "manual_review", "mixed_criteria_result": "manual_review", "manual_review": true}
+  },
+  "bank_model": {
+    "only_for_banks": true,
+    "non_bank_financial_sector_uses_standard_model": true,
+    "metrics": ["core_capital_adequacy", "provisions", "loan_portfolio", "deposits", "net_operating_income"],
+    "hard_gate": {"metric": "core_capital_adequacy", "min_pct": 8, "on_fail": "exclude"},
+    "scoring": {"up": 1, "down": 0, "reliable_score_min": 3, "reliable_score_max": 5, "unreliable_score_min": 1, "unreliable_score_max": 2},
+    "sources": [{"source": "pdf", "pages": "45-53"}, {"source": "video_1", "timestamp": "00:16:40-00:20:05"}],
+    "ambiguity": ["Whether growth in provisions should receive a positive point", "Treatment of unchanged values", "Whether capital adequacy is both a hard gate and a scored metric"],
+    "manual_review": true
+  },
+  "technical": {
+    "trend_timeframe": "1D",
+    "entry_timeframe": "4H",
+    "required_trend": "up",
+    "falling_trend_action": "exclude_for_now",
+    "entry_zone_1": "largest_volume_zone_below_current_price",
+    "entry_zone_2": "next_lower_large_volume_zone",
+    "zone_midpoint_distance_pct_max": 25,
+    "target_priority": ["large_volume_above_entry", "resistance", "previous_high"],
+    "preferred_target_age_months": {"min": 6, "max": 12},
+    "dividends_included": false,
+    "sources": [{"source": "pdf", "pages": "55-95,119-124"}, {"source": "video_2", "timestamp": "00:00:00-00:13:18"}, {"source": "video_2", "timestamp": "00:25:25-00:26:15"}],
+    "ambiguity": ["trend_formula", "volume_zone_boundaries", "target_priority_is_discretionary", "PDF/video wording around 25 percent contains a likely typo"],
+    "manual_review": true
+  },
+  "execution": {
+    "entry_orders_zone_1": {"min": 1, "max": 3, "suggested_levels": ["upper", "middle", "lower"]},
+    "zone_2_initial_action": "price_alert_then_reanalyse",
+    "set_take_profit_after_first_fill": true,
+    "cancel_unfilled_orders_after_profit_fixation": true,
+    "exit_modes": ["full_at_target", "half_at_target_then_stop_remaining_at_breakeven", "multiple_targets"],
+    "sources": [{"source": "pdf", "pages": "96-115"}, {"source": "video_2", "timestamp": "00:14:00-00:20:15"}]
+  },
+  "review_schedule": {
+    "technical": "monthly",
+    "fundamental": "annually_after_annual_reports",
+    "sources": [{"source": "pdf", "pages": "37-38,115-118"}, {"source": "video_2", "timestamp": "00:19:30-00:20:15"}]
+  },
+  "risk_warnings": [
+    {"code": "NO_VALIDATED_BACKTEST", "severity": "high", "message": "Claimed 40-50 percent annual return is illustrative and not a guarantee."},
+    {"code": "NO_INITIAL_STOP_RULE", "severity": "critical", "message": "The method does not define an initial stop loss or maximum tolerated drawdown."},
+    {"code": "HOLD_UNTIL_RECOVERY", "severity": "critical", "message": "Holding a losing position until recovery can freeze capital or create permanent loss.", "source": {"source": "video_2", "timestamp": "00:26:55-00:27:50"}},
+    {"code": "AVERAGING_DOWN", "severity": "critical", "message": "Averaging down increases concentration and drawdown; no maximum number of additions is defined."},
+    {"code": "MISSING_COSTS", "severity": "medium", "message": "Fees, taxes, slippage and liquidity constraints are not modeled."},
+    {"code": "NO_AUTOMATIC_ADVICE", "severity": "critical", "message": "Outputs must be explanatory analysis with source and manual-review flags, not unconditional buy or sell commands."}
+  ],
+  "global_manual_review": ["missing_financial_data", "mixed_category_criteria", "bank_provisions_direction", "low_cap_threshold", "trend_detection", "volume_zone_detection", "target_selection", "maximum_portfolio_exposure", "maximum_drawdown", "maximum_averaging_count"]
+}

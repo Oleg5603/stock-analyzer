@@ -1,0 +1,3 @@
+ticker,name,sector,category,is_bank,fundamental_passed,bank_metrics_passed,d1_confirmed,h4_confirmed,volume_profile_confirmed,evidence
+SBER,Сбербанк,Банки,1,true,,true,true,true,true,Учебный пример
+LKOH,Лукойл,Нефть и газ,2,false,true,,true,true,,Volume Profile требует проверки

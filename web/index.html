@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stock Analyzer — локальный анализ акций</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="Stock Analyzer">
+        <span class="brand-mark">SA</span><span>STOCK<br><b>ANALYZER</b></span>
+      </a>
+      <div class="local-only"><i></i> Локальный режим · без заявок брокеру</div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">МОСКОВСКАЯ БИРЖА · УЧЕБНЫЙ КОНТУР</p>
+          <h1>Решение видно<br>по цепочке фактов.</h1>
+          <p class="lead">Соберите фундаментальные данные, подтвердите D1 / H4 и объёмные зоны. Приложение лишь ранжирует кандидатов — окончательное решение остаётся за вами.</p>
+        </div>
+        <aside class="evidence-tape" aria-label="Цепочка проверки">
+          <span>01 · Категория</span><strong>Фундаментальный фильтр</strong>
+          <span>02 · Структура</span><strong>D1 + H4</strong>
+          <span>03 · Контекст</span><strong>Volume Profile</strong>
+          <span>04 · Риск</span><strong>Лимит сектора ≤ 20%</strong>
+        </aside>
+      </section>
+
+      <section class="workspace" aria-label="Рабочая область">
+        <div class="section-heading">
+          <div><p class="eyebrow">РЕЕСТР</p><h2>Компании на проверке</h2></div>
+          <label class="import-button"><input id="csv-file" type="file" accept=".csv,text/csv">Загрузить CSV</label>
+        </div>
+        <p class="hint">Обязательные колонки: ticker, name, sector. Остальные — category, is_bank, fundamental_passed, bank_metrics_passed, d1_confirmed, h4_confirmed, volume_profile_confirmed, evidence.</p>
+        <div id="import-message" class="message" role="status"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Тикер</th><th>Компания</th><th>Сектор</th><th>Кат.</th><th>Фундамент</th><th>Техника</th><th></th></tr></thead>
+            <tbody id="companies"><tr><td colspan="7" class="empty">Загрузите CSV с компаниями или используйте учебный пример.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="analysis-grid" id="analysis">
+        <form id="analysis-form" class="form-panel">
+          <p class="eyebrow">ПРОВЕРКА КАНДИДАТА</p>
+          <h2>Параметры портфеля</h2>
+          <label>Тикер <input id="ticker" name="ticker" required placeholder="SBER" autocomplete="off"></label>
+          <label>Предполагаемый вес, % <input id="weight" name="weight" type="number" min="0" max="100" step="0.1" placeholder="8"></label>
+          <label>Уже занято сектором, % <input id="sector-weight" name="sectorWeight" type="number" min="0" max="100" step="0.1" value="0"></label>
+          <p class="form-note">Вес сектора используется только для расчёта лимита. Заявки и подключение к QUIK здесь отсутствуют.</p>
+          <button type="submit">Проверить кандидата</button>
+        </form>
+        <section class="result-panel" aria-live="polite">
+          <p class="eyebrow">ВЕРДИКТ</p>
+          <div id="result" class="result-empty"><span>—</span><p>Выберите компанию из реестра или введите тикер, чтобы увидеть цепочку правил.</p></div>
+        </section>
+      </section>
+
+      <section class="method-note">
+        <p class="eyebrow">ГРАНИЦЫ МЕТОДИКИ V0.1</p>
+        <p>Категории и диапазоны позиции — из учебных материалов. Для категории 3 по умолчанию используется Долг/EBITDA ≤ 4; порог 3,5 отмечен в источнике как противоречие и требует ручной настройки. Тренд и объёмные зоны не подменяются автоматическим решением.</p>
+      </section>
+    </main>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
