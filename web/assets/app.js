@@ -89,6 +89,19 @@ $('#moex-import').addEventListener('click', async () => {
   finally { button.disabled = false; button.textContent = 'Обновить с MOEX'; }
 });
 
+$('#blue-chips-import').addEventListener('click', async () => {
+  const button = $('#blue-chips-import');
+  button.disabled = true; button.textContent = 'Загружаю…'; announce('Получаю текущий состав MOEXBC и цены из MOEX ISS…');
+  try {
+    const response = await fetch('/api/import/moex-blue-chips', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Не удалось получить состав голубых фишек');
+    announce(`${result.source}: добавлено ${result.accepted}. ${result.note}`);
+    await loadCompanies();
+  } catch (error) { announce(error.message); }
+  finally { button.disabled = false; button.textContent = 'Только голубые фишки'; }
+});
+
 $('#companies').addEventListener('click', (event) => {
   const button = event.target.closest('[data-ticker]'); if (!button) return;
   $('#ticker').value = button.dataset.ticker; $('#analysis').scrollIntoView({ behavior: 'smooth', block: 'start' });

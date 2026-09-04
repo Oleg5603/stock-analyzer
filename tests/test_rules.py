@@ -2,7 +2,7 @@ import unittest
 
 from stock_analyzer.csvio import import_companies_csv
 from stock_analyzer.models import Company, PortfolioPosition
-from stock_analyzer.moex import companies_from_iss
+from stock_analyzer.moex import companies_from_iss, _rows
 from stock_analyzer.rules import analyze_company
 
 
@@ -44,6 +44,10 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(company.ticker, "MOEX")
         self.assertEqual(company.last_price, 191.2)
         self.assertIsNone(company.category)
+
+    def test_moex_index_rows_keep_security_ids(self):
+        rows = _rows({"columns": ["secids", "weight"], "data": [["SBER", 15.12]]})
+        self.assertEqual(rows[0]["secids"], "SBER")
 
 
 if __name__ == "__main__":

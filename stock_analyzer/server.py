@@ -6,6 +6,7 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
+from urllib.error import URLError
 
 from .service import AnalyzerService
 
@@ -72,6 +73,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             if path == "/api/import/moex":
                 self._send(200, self.service.import_moex())
                 return
+            if path == "/api/import/moex-blue-chips":
+                self._send(200, self.service.import_blue_chips())
+                return
             payload = json.loads(raw or b"{}")
             if path == "/api/analyze":
                 self._send(200, self.service.analyze(payload))
@@ -81,6 +85,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send(404, {"error": str(exc)})
         except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send(400, {"error": str(exc)})
+        except (URLError, TimeoutError, OSError):
+            self._send(502, {"error": "MOEX ISS временно недоступен. Повторите загрузку позже."})
 
     def log_message(self, format: str, *args: object) -> None:
         return

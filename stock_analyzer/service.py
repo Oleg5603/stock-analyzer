@@ -6,7 +6,7 @@ from typing import Any
 
 from .csvio import import_companies_csv
 from .models import Company, PortfolioPosition
-from .moex import fetch_tqbr_companies
+from .moex import fetch_blue_chip_companies, fetch_tqbr_companies
 from .rules import analyze_company
 
 
@@ -36,6 +36,13 @@ class AnalyzerService:
             for company in imported:
                 self._companies[company.ticker] = company
         return {"accepted": len(imported), "total": len(self._companies), "source": "MOEX ISS / TQBR", "note": "Цена и список загружены автоматически; категория, сектор и признаки методики требуют ручной проверки."}
+
+    def import_blue_chips(self) -> dict[str, Any]:
+        imported = fetch_blue_chip_companies()
+        with self._lock:
+            for company in imported:
+                self._companies[company.ticker] = company
+        return {"accepted": len(imported), "total": len(self._companies), "source": "MOEX ISS / MOEXBC", "note": "Состав голубых фишек и цены загружены автоматически; методика требует ручной проверки."}
 
     def analyze(self, payload: dict[str, Any]) -> dict[str, Any]:
         company_data = payload.get("company")

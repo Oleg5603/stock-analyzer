@@ -14,6 +14,7 @@ MOEX_TQBR_URL = (
     "&securities.columns=SECID,SHORTNAME,SECNAME,STATUS"
     "&marketdata.columns=SECID,LAST,MARKETPRICE,LASTTOPREVPRICE"
 )
+MOEX_BLUE_CHIPS_URL = "https://iss.moex.com/iss/statistics/engines/stock/markets/index/analytics/MOEXBC.json?iss.meta=off&iss.only=analytics"
 
 
 def _rows(block: dict[str, object]) -> list[dict[str, object]]:
@@ -49,3 +50,15 @@ def fetch_tqbr_companies(timeout_seconds: int = 20) -> list[Company]:
     with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310: fixed HTTPS public MOEX endpoint
         payload = json.loads(response.read().decode("utf-8"))
     return companies_from_iss(payload)
+
+
+def _get_json(url: str, timeout_seconds: int) -> dict[str, object]:
+    request = Request(url, headers={"Accept": "application/json", "User-Agent": "StockAnalyzer/0.1"})
+    with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310: fixed HTTPS public MOEX endpoint
+        return json.loads(response.read().decode("utf-8"))
+
+
+def fetch_blue_chip_companies(timeout_seconds: int = 20) -> list[Company]:
+    index_rows = _rows(_get_json(MOEX_BLUE_CHIPS_URL, timeout_seconds)["analytics"])
+    tickers = {str(row["secids"]).upper() for row in index_rows}
+    return [company for company in fetch_tqbr_companies(timeout_seconds) if company.ticker in tickers]
