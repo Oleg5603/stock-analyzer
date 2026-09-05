@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
+from statistics import fmean
 from urllib.request import Request, urlopen
 
 from .models import Company
@@ -15,6 +17,27 @@ MOEX_TQBR_URL = (
     "&marketdata.columns=SECID,LAST,MARKETPRICE,LASTTOPREVPRICE"
 )
 MOEX_BLUE_CHIPS_URL = "https://iss.moex.com/iss/statistics/engines/stock/markets/index/analytics/MOEXBC.json?iss.meta=off&iss.only=analytics"
+
+
+@dataclass(frozen=True)
+class DailyTechnicalSnapshot:
+    """Facts derived from public daily MOEX candles, not a trade recommendation."""
+
+    ticker: str
+    candle_date: str
+    close: float
+    sma50: float
+    recent_high_20: float
+    previous_high_20: float
+    average_volume_20: float
+    latest_volume: float
+    price_above_sma50: bool
+    rising_high: bool
+    trend_confirmed: bool
+    source: str = "MOEX ISS / дневные свечи TQBR"
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 def _rows(block: dict[str, object]) -> list[dict[str, object]]:
@@ -56,6 +79,50 @@ def _get_json(url: str, timeout_seconds: int) -> dict[str, object]:
     request = Request(url, headers={"Accept": "application/json", "User-Agent": "StockAnalyzer/0.1"})
     with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310: fixed HTTPS public MOEX endpoint
         return json.loads(response.read().decode("utf-8"))
+
+
+def technical_from_candles(ticker: str, payload: dict[str, object]) -> DailyTechnicalSnapshot:
+    """Apply the user-approved D1 rule to at least 50 completed daily candles."""
+    candles = _rows(payload["candles"])
+    if len(candles) < 50:
+        raise ValueError(f"MOEX ISS вернул только {len(candles)} дневных свечей; нужно не менее 50")
+    closes = [float(row["close"]) for row in candles]
+    highs = [float(row["high"]) for row in candles]
+    volumes = [float(row["volume"]) for row in candles]
+    close = closes[-1]
+    sma50 = fmean(closes[-50:])
+    # "Растущий максимум": 20 последних торговых дней против предшествующих 20.
+    recent_high = max(highs[-20:])
+    previous_high = max(highs[-40:-20])
+    price_above_sma50 = close > sma50
+    rising_high = recent_high > previous_high
+    return DailyTechnicalSnapshot(
+        ticker=ticker.upper(),
+        candle_date=str(candles[-1]["begin"]),
+        close=round(close, 6),
+        sma50=round(sma50, 6),
+        recent_high_20=round(recent_high, 6),
+        previous_high_20=round(previous_high, 6),
+        average_volume_20=round(fmean(volumes[-20:]), 2),
+        latest_volume=round(volumes[-1], 2),
+        price_above_sma50=price_above_sma50,
+        rising_high=rising_high,
+        trend_confirmed=price_above_sma50 and rising_high,
+    )
+
+
+def fetch_daily_technical(ticker: str, timeout_seconds: int = 20) -> DailyTechnicalSnapshot:
+    normalized = ticker.strip().upper()
+    if not normalized.isalnum():
+        raise ValueError("Тикер может содержать только буквы и цифры")
+    date_from = (datetime.now(UTC).date() - timedelta(days=300)).isoformat()
+    url = (
+        "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/"
+        f"securities/{normalized}/candles.json?iss.meta=off&iss.only=candles"
+        "&candles.columns=begin,close,high,volume&interval=24"
+        f"&from={date_from}"
+    )
+    return technical_from_candles(normalized, _get_json(url, timeout_seconds))
 
 
 def fetch_blue_chip_companies(timeout_seconds: int = 20) -> list[Company]:

@@ -2,8 +2,9 @@ import unittest
 
 from stock_analyzer.csvio import import_companies_csv
 from stock_analyzer.models import Company, PortfolioPosition
-from stock_analyzer.moex import companies_from_iss, _rows
+from stock_analyzer.moex import companies_from_iss, technical_from_candles, _rows
 from stock_analyzer.rules import analyze_company
+from stock_analyzer.smartlab import fundamental_from_html
 
 
 class RulesTests(unittest.TestCase):
@@ -48,6 +49,31 @@ class RulesTests(unittest.TestCase):
     def test_moex_index_rows_keep_security_ids(self):
         rows = _rows({"columns": ["secids", "weight"], "data": [["SBER", 15.12]]})
         self.assertEqual(rows[0]["secids"], "SBER")
+
+    def test_daily_rule_requires_price_above_sma_and_rising_high(self):
+        closes = [100.0] * 49 + [110.0]
+        highs = [101.0] * 10 + [102.0] * 10 + [103.0] * 20 + [110.0] * 10
+        payload = {"candles": {"columns": ["begin", "close", "high", "volume"], "data": [
+            [f"2026-01-{index + 1:02d}", closes[index], highs[index], 1000 + index]
+            for index in range(50)
+        ]}}
+        snapshot = technical_from_candles("TEST", payload)
+        self.assertTrue(snapshot.price_above_sma50)
+        self.assertTrue(snapshot.rising_high)
+        self.assertTrue(snapshot.trend_confirmed)
+
+    def test_smartlab_parser_keeps_latest_public_facts(self):
+        html = """<table>
+        <tr><td>Дата отчета</td><td>2026-03-01</td><td>2026-06-01</td></tr>
+        <tr><td>Чистая прибыль, млрд руб</td><td>100</td><td>120</td></tr>
+        <tr><td>ROE, %</td><td>20%</td><td>22%</td></tr>
+        <tr><td>P/E</td><td>5.0</td><td>4.5</td></tr>
+        </table>"""
+        snapshot = fundamental_from_html("SBER", html)
+        self.assertTrue(snapshot.available)
+        self.assertEqual(snapshot.report_date, "2026-06-01")
+        self.assertEqual(snapshot.metrics["Чистая прибыль"], "120")
+        self.assertEqual(snapshot.metrics["ROE"], "22%")
 
 
 if __name__ == "__main__":

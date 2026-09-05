@@ -43,12 +43,39 @@ function humanStatus(status) {
   return { passed: 'ПРОЙДЕНО', failed: 'БЛОКЕР', warning: 'ВНИМАНИЕ', manual_review: 'ВРУЧНУЮ' }[status] || status;
 }
 
+function technicalFacts(technical) {
+  if (!technical) return '';
+  const yesNo = (value) => value ? 'да' : 'нет';
+  return `<div class="technical-facts">
+    <p><b>D1 · MOEX ISS</b> · свеча ${technical.candle_date}</p>
+    <div class="metrics">
+      <div class="metric"><b>${technical.close.toLocaleString('ru-RU')}</b><span>закрытие</span></div>
+      <div class="metric"><b>${technical.sma50.toLocaleString('ru-RU')}</b><span>SMA 50</span></div>
+      <div class="metric"><b>${yesNo(technical.rising_high)}</b><span>максимум 20д растёт</span></div>
+      <div class="metric"><b>${technical.latest_volume.toLocaleString('ru-RU')}</b><span>объём дня</span></div>
+    </div>
+    <p class="form-note">Тренд D1: ${technical.price_above_sma50 ? 'цена выше SMA 50' : 'цена не выше SMA 50'}; ${technical.rising_high ? 'максимум последних 20 дней выше предыдущих 20' : 'максимум не растёт'}. H4 и Volume Profile не подменяются этим расчётом.</p>
+  </div>`;
+}
+
+function fundamentalFacts(fundamentals) {
+  if (!fundamentals) return '';
+  const values = Object.entries(fundamentals.metrics || {}).map(([label, value]) => `<div class="metric"><b>${value}</b><span>${label}</span></div>`).join('');
+  return `<div class="technical-facts">
+    <p><b>Фундамент · Smart-Lab</b>${fundamentals.report_date ? ` · отчёт: ${fundamentals.report_date}` : ''}</p>
+    ${values ? `<div class="metrics">${values}</div>` : ''}
+    <p class="form-note">${fundamentals.note} <a href="${fundamentals.source_url}" target="_blank" rel="noreferrer">Открыть источник</a>.</p>
+  </div>`;
+}
+
 function renderResult(data) {
   const range = data.position_min_pct == null ? 'не задан' : `${data.position_min_pct}–${data.position_max_pct}%`;
   $('#result').className = 'verdict ' + data.decision;
   $('#result').innerHTML = `<h3>${humanDecision(data.decision)}</h3>
     <p>${data.ticker} · достоверность: ${data.confidence === 'high' ? 'высокая' : data.confidence === 'medium' ? 'средняя' : 'требуется уточнение'}</p>
     <div class="metrics"><div class="metric"><b>${data.category ?? '—'}</b><span>категория</span></div><div class="metric"><b>${range}</b><span>диапазон веса</span></div><div class="metric"><b>${data.projected_sector_pct ?? '—'}%</b><span>сектор после добавления</span></div></div>
+    ${technicalFacts(data.technical)}
+    ${fundamentalFacts(data.fundamentals)}
     <ul class="rules">${data.outcomes.map((rule) => `<li><span class="rule-status ${rule.status}">${rule.rule_id}<br>${humanStatus(rule.status)}</span><span>${rule.message}</span></li>`).join('')}</ul>`;
 }
 

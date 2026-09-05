@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from threading import RLock
 from typing import Any
 
 from .csvio import import_companies_csv
 from .models import Company, PortfolioPosition
-from .moex import fetch_blue_chip_companies, fetch_tqbr_companies
+from .moex import fetch_blue_chip_companies, fetch_daily_technical, fetch_tqbr_companies
 from .rules import analyze_company
+from .smartlab import fetch_public_fundamentals
 
 
 class AnalyzerService:
@@ -54,7 +55,13 @@ class AnalyzerService:
                 company = self._companies.get(ticker)
             if company is None:
                 raise KeyError(f"Инструмент {ticker!r} не найден")
+        technical = fetch_daily_technical(company.ticker)
+        fundamentals = fetch_public_fundamentals(company.ticker)
+        company = replace(company, d1_confirmed=technical.trend_confirmed)
         portfolio = [PortfolioPosition.from_mapping(row) for row in payload.get("portfolio", [])]
         proposed = payload.get("proposed_position_pct")
         result = analyze_company(company, portfolio, float(proposed) if proposed is not None else None)
-        return result.to_dict()
+        response = result.to_dict()
+        response["technical"] = technical.to_dict()
+        response["fundamentals"] = fundamentals.to_dict()
+        return response
