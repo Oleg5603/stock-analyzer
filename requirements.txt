@@ -1,0 +1,2 @@
+pypdf>=5.0
+truststore>=0.10

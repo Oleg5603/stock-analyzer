@@ -7,7 +7,9 @@ from stock_analyzer.rules import analyze_company
 from stock_analyzer.smartlab import fundamental_from_html
 from stock_analyzer.classification import classify_bank, classify_nonbank
 from stock_analyzer.smartlab import annual_series_from_html
-from stock_analyzer.official_reports import short_debt_from_text
+from unittest.mock import patch
+
+from stock_analyzer.official_reports import _pdf_link_from_page, official_report_source, short_debt_from_text
 
 
 class RulesTests(unittest.TestCase):
@@ -104,6 +106,18 @@ class RulesTests(unittest.TestCase):
         evidence = short_debt_from_text("Краткосрочные кредиты и займы 1 250,5 млн руб", "https://issuer.example/report.pdf")
         self.assertEqual(evidence.amount, 1250.5)
         self.assertEqual(evidence.status, "found")
+
+    def test_uses_issuer_disclosure_page_not_aggregator(self):
+        source = official_report_source("PLZL")
+        self.assertIsNotNone(source)
+        self.assertEqual(source["status"], "page_verified")
+        self.assertIn("polyus.com", source["page_url"])
+
+    def test_pdf_discovery_prefers_requested_year(self):
+        html = b'<a href="old.pdf">Report 2024</a><a href="fresh.pdf">Report 2025</a>'
+        with patch("stock_analyzer.official_reports._download", return_value=html):
+            report_url = _pdf_link_from_page("https://issuer.example/reports/", 2025)
+        self.assertEqual(report_url, "https://issuer.example/reports/fresh.pdf")
 
 
 if __name__ == "__main__":

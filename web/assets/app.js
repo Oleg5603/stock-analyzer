@@ -84,6 +84,11 @@ function classificationBlock(item) {
   return `<div class="technical-facts"><p><b>Категория · годовые МСФО</b> · статус: ${item.status}</p><div class="metrics"><div class="metric"><b>${category}</b><span>расчётная категория</span></div>${series}</div><ul class="classification-reasons">${rows}</ul><p class="form-note"><a href="${item.annual_source_url}" target="_blank" rel="noreferrer">Открыть годовой источник</a>. Ряды без нужного показателя не дополняются предположениями.</p></div>`;
 }
 
+function officialDebtBlock(ticker, source) {
+  if (!source) return '<div class="technical-facts"><p><b>Краткосрочный долг · официальный отчёт</b></p><p class="form-note">Для этого тикера ещё не добавлена подтверждённая страница эмитента.</p></div>';
+  return `<div class="technical-facts"><p><b>Краткосрочный долг · официальный отчёт</b></p><p class="form-note">${source.issuer}: <a href="${source.page_url}" target="_blank" rel="noreferrer">страница раскрытия</a>. Автосбор не меняет категорию, пока единицы и отношение к EBITDA не подтверждены.</p><button class="secondary-action" data-official-debt="${ticker}">Загрузить из отчёта</button><p id="official-debt-result" class="form-note"></p></div>`;
+}
+
 function renderResult(data) {
   const range = data.position_min_pct == null ? 'не задан' : `${data.position_min_pct}–${data.position_max_pct}%`;
   $('#result').className = 'verdict ' + data.decision;
@@ -94,6 +99,7 @@ function renderResult(data) {
     ${technicalFacts(data.technical)}
     ${fundamentalFacts(data.fundamentals)}
     ${classificationBlock(data.classification)}
+    ${officialDebtBlock(data.ticker, data.classification?.official_report_source)}
     <ul class="rules">${data.outcomes.map((rule) => `<li><span class="rule-status ${rule.status}">${rule.rule_id}<br>${humanStatus(rule.status)}</span><span>${rule.message}</span></li>`).join('')}</ul>`;
 }
 
@@ -156,6 +162,19 @@ $('#blue-chips-import').addEventListener('click', async () => {
 $('#companies').addEventListener('click', (event) => {
   const button = event.target.closest('[data-ticker]'); if (!button) return;
   $('#ticker').value = button.dataset.ticker; $('#analysis').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+$('#result').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-official-debt]'); if (!button) return;
+  button.disabled = true; button.textContent = 'Читаю PDF…';
+  const output = $('#official-debt-result'); output.textContent = 'Получаю PDF только с сайта эмитента…';
+  try {
+    const response = await fetch('/api/official-short-debt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: button.dataset.officialDebt }) });
+    const item = await response.json();
+    if (!response.ok) throw new Error(item.error || 'Не удалось прочитать отчёт');
+    const amount = item.amount == null ? 'не распознано' : item.amount.toLocaleString('ru-RU');
+    output.innerHTML = `<b>${item.status === 'found' ? 'Найдено' : 'Нужна проверка'}:</b> ${amount}. ${item.note}${item.source_url ? ` <a href="${item.source_url}" target="_blank" rel="noreferrer">Открыть PDF</a>.` : ''}`;
+  } catch (error) { output.textContent = error.message; }
+  finally { button.disabled = false; button.textContent = 'Загрузить из отчёта'; }
 });
 $('#analysis-form').addEventListener('submit', analyze);
 async function initialize() {

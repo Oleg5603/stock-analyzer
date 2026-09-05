@@ -8,6 +8,7 @@ from .csvio import import_companies_csv
 from .classification import classify_bank, classify_nonbank
 from .models import Company, PortfolioPosition
 from .moex import fetch_blue_chip_companies, fetch_daily_technical, fetch_tqbr_companies
+from .official_reports import official_report_source, short_debt_from_official_source
 from .rules import analyze_company
 from .smartlab import fetch_annual_series, fetch_public_fundamentals
 
@@ -46,6 +47,10 @@ class AnalyzerService:
                 self._companies[company.ticker] = company
         return {"accepted": len(imported), "total": len(self._companies), "source": "MOEX ISS / MOEXBC", "note": "Состав голубых фишек и цены загружены автоматически; методика требует ручной проверки."}
 
+    def official_short_debt(self, ticker: str, year: int = 2025) -> dict[str, Any]:
+        evidence = short_debt_from_official_source(ticker, year)
+        return evidence.to_dict() | {"ticker": ticker.upper(), "year": year}
+
     def analyze(self, payload: dict[str, Any]) -> dict[str, Any]:
         company_data = payload.get("company")
         if company_data:
@@ -69,7 +74,11 @@ class AnalyzerService:
         response = result.to_dict()
         response["technical"] = technical.to_dict()
         response["fundamentals"] = fundamentals.to_dict()
-        response["classification"] = classification.to_dict() | {"annual_source_url": annual_source_url, "annual_series": annual_series}
+        response["classification"] = classification.to_dict() | {
+            "annual_source_url": annual_source_url,
+            "annual_series": annual_series,
+            "official_report_source": official_report_source(company.ticker),
+        }
         if not technical.trend_confirmed:
             recommendation = ("exclude_now", "Не рассматривать сейчас", "Дневной тренд не подтверждён.")
         elif any(value is None for value in (company.category, company.h4_confirmed, company.volume_profile_confirmed, target)):

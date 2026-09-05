@@ -1,0 +1,28 @@
+{
+  "LKOH": {
+    "issuer": "ПАО «ЛУКОЙЛ»",
+    "page_url": "https://lukoil.ru/InvestorAndShareholderCenter/FinancialReports",
+    "report_type": "Консолидированная финансовая отчетность по МСФО",
+    "status": "page_verified"
+  },
+  "ROSN": {
+    "issuer": "ПАО «НК «Роснефть»",
+    "page_url": "https://rosneft.ru/Investors/statements_and_presentations/Statements/",
+    "report_url": "https://www.rosneft.ru/upload/site1/document_cons_report/12m2025_RUS.pdf",
+    "report_year": "2025",
+    "report_type": "Консолидированная финансовая отчетность по МСФО",
+    "status": "page_verified"
+  },
+  "GMKN": {
+    "issuer": "ПАО «ГМК «Норильский никель»",
+    "page_url": "https://ar2025.nornickel.ru/",
+    "report_type": "Годовой отчет с финансовой отчетностью",
+    "status": "page_verified"
+  },
+  "PLZL": {
+    "issuer": "ПАО «Полюс»",
+    "page_url": "https://polyus.com/ru/investors/disclosure/ifrs-financials/",
+    "report_type": "Консолидированная финансовая отчетность по МСФО",
+    "status": "page_verified"
+  }
+}

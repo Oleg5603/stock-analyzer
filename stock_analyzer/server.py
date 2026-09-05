@@ -79,6 +79,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             payload = json.loads(raw or b"{}")
             if path == "/api/analyze":
                 self._send(200, self.service.analyze(payload))
+            elif path == "/api/official-short-debt":
+                ticker = str(payload.get("ticker", ""))
+                if not ticker:
+                    raise ValueError("Укажите тикер")
+                self._send(200, self.service.official_short_debt(ticker, int(payload.get("year", 2025))))
             else:
                 self._send(404, {"error": "Маршрут не найден"})
         except KeyError as exc:
