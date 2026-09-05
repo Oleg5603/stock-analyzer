@@ -1,4 +1,4 @@
-const state = { companies: [] };
+const state = { companies: [], verdicts: {} };
 const $ = (selector) => document.querySelector(selector);
 
 function flag(value) {
@@ -19,12 +19,14 @@ function renderCompanies() {
     target.innerHTML = '<tr><td colspan="8" class="empty">Загрузите CSV или обновите список с MOEX.</td></tr>';
     return;
   }
-  target.innerHTML = state.companies.map((company) => `<tr>
+  const rank = (company) => state.verdicts[company.ticker]?.status === 'consider' ? 0 : 1;
+  const ordered = [...state.companies].sort((left, right) => rank(left) - rank(right) || left.ticker.localeCompare(right.ticker));
+  target.innerHTML = ordered.map((company) => `<tr>
     <td>${company.ticker}</td><td>${company.name}</td><td>${company.last_price == null ? '—' : company.last_price.toLocaleString('ru-RU')}</td><td>${company.sector}</td>
     <td>${company.category ?? '—'}</td>
     <td>${flag(company.is_bank ? company.bank_metrics_passed : company.fundamental_passed)}</td>
     <td>${flag(company.d1_confirmed && company.h4_confirmed && company.volume_profile_confirmed)}</td>
-    <td><button class="table-action" data-ticker="${company.ticker}">Проверить</button></td>
+    <td>${state.verdicts[company.ticker]?.status === 'consider' ? '<span class="mini-status yes">можно рассматривать</span>' : ''}<button class="table-action" data-ticker="${company.ticker}">Проверить</button></td>
   </tr>`).join('');
 }
 
@@ -111,6 +113,8 @@ async function analyze(event) {
   const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const result = await response.json();
   if (!response.ok) { announce(result.error || 'Не удалось выполнить проверку'); return; }
+  state.verdicts[ticker] = result.recommendation || {};
+  renderCompanies();
   renderResult(result);
 }
 

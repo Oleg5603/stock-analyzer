@@ -7,6 +7,7 @@ from stock_analyzer.rules import analyze_company
 from stock_analyzer.smartlab import fundamental_from_html
 from stock_analyzer.classification import classify_bank, classify_nonbank
 from stock_analyzer.smartlab import annual_series_from_html
+from stock_analyzer.official_reports import short_debt_from_text
 
 
 class RulesTests(unittest.TestCase):
@@ -98,6 +99,11 @@ class RulesTests(unittest.TestCase):
     def test_bank_capital_below_floor_blocks(self):
         series = {"core_capital": [9, 7.9], "provisions": [10, 9], "loan_book": [10, 11], "deposits": [10, 11], "operating_income": [10, 11]}
         self.assertFalse(classify_bank(series).bank_metrics_passed)
+
+    def test_official_report_extractor_keeps_source_and_amount(self):
+        evidence = short_debt_from_text("Краткосрочные кредиты и займы 1 250,5 млн руб", "https://issuer.example/report.pdf")
+        self.assertEqual(evidence.amount, 1250.5)
+        self.assertEqual(evidence.status, "found")
 
 
 if __name__ == "__main__":
