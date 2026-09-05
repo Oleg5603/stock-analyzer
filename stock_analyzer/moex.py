@@ -18,6 +18,15 @@ MOEX_TQBR_URL = (
 )
 MOEX_BLUE_CHIPS_URL = "https://iss.moex.com/iss/statistics/engines/stock/markets/index/analytics/MOEXBC.json?iss.meta=off&iss.only=analytics"
 
+# Консервативная классификация состава MOEXBC; не является категорией стратегии.
+BLUE_CHIP_SECTORS = {
+    "GAZP": "Нефть и газ", "ROSN": "Нефть и газ", "NVTK": "Нефть и газ", "TATN": "Нефть и газ", "SNGS": "Нефть и газ",
+    "LKOH": "Нефть и газ", "GMKN": "Металлы и добыча", "PLZL": "Металлы и добыча",
+    "SBER": "Банки", "VTBR": "Банки", "T": "Финансовые технологии",
+    "MOEX": "Финансовая инфраструктура", "OZON": "Потребительский интернет", "X5": "Потребительский сектор", "YDEX": "Технологии",
+}
+BANK_TICKERS = {"SBER", "VTBR"}
+
 
 @dataclass(frozen=True)
 class DailyTechnicalSnapshot:
@@ -60,7 +69,8 @@ def companies_from_iss(payload: dict[str, object]) -> list[Company]:
         companies.append(Company(
             ticker=ticker,
             name=str(row.get("SECNAME") or row.get("SHORTNAME") or ticker),
-            sector="Не классифицировано",
+            sector=BLUE_CHIP_SECTORS.get(ticker, "Не классифицировано"),
+            is_bank=ticker in BANK_TICKERS,
             evidence="MOEX ISS: список и цена загружены автоматически; методика не подтверждена",
             last_price=float(price) if price is not None else None,
             price_updated_at=updated_at,

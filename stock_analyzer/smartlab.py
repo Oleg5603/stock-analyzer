@@ -18,6 +18,20 @@ SMARTLAB_METRICS = (
     "Просроченные кредиты, NPL",
 )
 
+ANNUAL_METRICS: dict[str, tuple[str, ...]] = {
+    "revenue": ("Выручка",),
+    "debt_ebitda": ("Долг/EBITDA",),
+    "equity": ("Капитал",),
+    "operating_profit": ("Операционная прибыль", "Опер. прибыль"),
+    "fcf": ("Свободный денежный поток", "FCF"),
+    "short_debt_ebitda": ("Краткосрочный долг/EBITDA", "Краткосрочные обязательства/EBITDA"),
+    "core_capital": ("Дост.осн капитала", "Достаточность основного капитала"),
+    "provisions": ("Создание резервов",),
+    "loan_book": ("Кредитный портфель",),
+    "deposits": ("Депозиты",),
+    "operating_income": ("Чистый операц доход", "Чистый операционный доход"),
+}
+
 
 @dataclass(frozen=True)
 class FundamentalSnapshot:
@@ -74,6 +88,43 @@ def _matching_row(rows: list[list[str]], label: str) -> list[str] | None:
     return next((row for row in rows if row and label_folded in row[0].casefold()), None)
 
 
+def _number(value: str) -> float | None:
+    cleaned = value.replace("\u00a0", " ").replace("%", "").replace(" ", "").replace(",", ".")
+    cleaned = "".join(character for character in cleaned if character in "0123456789.-")
+    try:
+        return float(cleaned) if cleaned not in {"", "-", "."} else None
+    except ValueError:
+        return None
+
+
+def annual_series_from_html(html: str) -> dict[str, list[float]]:
+    """Extract only columns whose headers are explicit calendar years, never LTM."""
+    parser = _TableParser()
+    parser.feed(html)
+    year_columns: list[int] = []
+    for row in parser.rows:
+        current = [index for index, cell in enumerate(row) if len(cell) == 4 and cell.isdigit() and 2000 <= int(cell) <= 2100]
+        if len(current) >= 2:
+            year_columns = current
+            break
+    result: dict[str, list[float]] = {}
+    if not year_columns:
+        return result
+    for key, aliases in ANNUAL_METRICS.items():
+        row = next((_matching_row(parser.rows, alias) for alias in aliases if _matching_row(parser.rows, alias)), None)
+        if not row:
+            continue
+        # Smart-Lab has a presentation-only empty column before financial rows,
+        # so cell offsets differ between the header and data rows.  Take the
+        # first N numeric values: they correspond to N explicit year headers;
+        # the following numeric value is LTM and is deliberately excluded.
+        numeric = [value for value in (_number(cell) for cell in row[1:]) if value is not None]
+        numeric = numeric[:len(year_columns)]
+        if numeric:
+            result[key] = numeric
+    return result
+
+
 def fundamental_from_html(ticker: str, html: str) -> FundamentalSnapshot:
     parser = _TableParser()
     parser.feed(html)
@@ -107,3 +158,14 @@ def fetch_public_fundamentals(ticker: str, timeout_seconds: int = 20) -> Fundame
     with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310: fixed public HTTPS source
         html = response.read().decode("utf-8", errors="replace")
     return fundamental_from_html(normalized, html)
+
+
+def fetch_annual_series(ticker: str, timeout_seconds: int = 20) -> tuple[dict[str, list[float]], str]:
+    normalized = ticker.strip().upper()
+    if not normalized.isalnum():
+        raise ValueError("Тикер может содержать только буквы и цифры")
+    source_url = f"https://smart-lab.ru/q/{normalized}/f/y/MSFO/"
+    request = Request(source_url, headers={"Accept": "text/html", "User-Agent": "StockAnalyzer/0.2"})
+    with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310: fixed public HTTPS source
+        html = response.read().decode("utf-8", errors="replace")
+    return annual_series_from_html(html), source_url

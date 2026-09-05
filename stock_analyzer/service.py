@@ -5,10 +5,11 @@ from threading import RLock
 from typing import Any
 
 from .csvio import import_companies_csv
+from .classification import classify_bank, classify_nonbank
 from .models import Company, PortfolioPosition
 from .moex import fetch_blue_chip_companies, fetch_daily_technical, fetch_tqbr_companies
 from .rules import analyze_company
-from .smartlab import fetch_public_fundamentals
+from .smartlab import fetch_annual_series, fetch_public_fundamentals
 
 
 class AnalyzerService:
@@ -57,11 +58,25 @@ class AnalyzerService:
                 raise KeyError(f"Инструмент {ticker!r} не найден")
         technical = fetch_daily_technical(company.ticker)
         fundamentals = fetch_public_fundamentals(company.ticker)
-        company = replace(company, d1_confirmed=technical.trend_confirmed)
+        annual_series, annual_source_url = fetch_annual_series(company.ticker)
+        target = payload.get("target_price")
+        potential = round((float(target) / technical.close - 1) * 100, 2) if target else None
+        classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, potential)
+        company = replace(company, category=classification.category, fundamental_passed=classification.fundamental_passed, bank_metrics_passed=classification.bank_metrics_passed, d1_confirmed=technical.trend_confirmed, h4_confirmed=payload.get("h4_confirmed", company.h4_confirmed), volume_profile_confirmed=payload.get("volume_profile_confirmed", company.volume_profile_confirmed))
         portfolio = [PortfolioPosition.from_mapping(row) for row in payload.get("portfolio", [])]
         proposed = payload.get("proposed_position_pct")
         result = analyze_company(company, portfolio, float(proposed) if proposed is not None else None)
         response = result.to_dict()
         response["technical"] = technical.to_dict()
         response["fundamentals"] = fundamentals.to_dict()
+        response["classification"] = classification.to_dict() | {"annual_source_url": annual_source_url, "annual_series": annual_series}
+        if not technical.trend_confirmed:
+            recommendation = ("exclude_now", "Не рассматривать сейчас", "Дневной тренд не подтверждён.")
+        elif any(value is None for value in (company.category, company.h4_confirmed, company.volume_profile_confirmed, target)):
+            recommendation = ("watch", "Наблюдать", "Нужно подтвердить категорию, H4, Volume Profile и целевую цену.")
+        elif result.decision == "candidate" and (potential is None or potential >= 10):
+            recommendation = ("consider", "Можно рассматривать", "Все заданные фильтры пройдены; проверьте план входа.")
+        else:
+            recommendation = ("watch", "Наблюдать", "В цепочке правил остались блокеры или уточнения.")
+        response["recommendation"] = {"status": recommendation[0], "title": recommendation[1], "message": recommendation[2], "potential_pct": potential}
         return response

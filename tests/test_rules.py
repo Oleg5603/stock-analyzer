@@ -2,9 +2,11 @@ import unittest
 
 from stock_analyzer.csvio import import_companies_csv
 from stock_analyzer.models import Company, PortfolioPosition
-from stock_analyzer.moex import companies_from_iss, technical_from_candles, _rows
+from stock_analyzer.moex import BLUE_CHIP_SECTORS, companies_from_iss, technical_from_candles, _rows
 from stock_analyzer.rules import analyze_company
 from stock_analyzer.smartlab import fundamental_from_html
+from stock_analyzer.classification import classify_bank, classify_nonbank
+from stock_analyzer.smartlab import annual_series_from_html
 
 
 class RulesTests(unittest.TestCase):
@@ -74,6 +76,28 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(snapshot.report_date, "2026-06-01")
         self.assertEqual(snapshot.metrics["Чистая прибыль"], "120")
         self.assertEqual(snapshot.metrics["ROE"], "22%")
+
+    def test_blue_chip_sector_map_marks_banks(self):
+        self.assertEqual(BLUE_CHIP_SECTORS["SBER"], "Банки")
+        self.assertEqual(BLUE_CHIP_SECTORS["LKOH"], "Нефть и газ")
+
+    def test_annual_parser_excludes_ltm_column(self):
+        html = """<table><tr><td>Компания</td><td>2023</td><td>2024</td><td>LTM</td></tr>
+        <tr><td>Выручка</td><td>100</td><td>120</td><td>130</td></tr>
+        <tr><td>Долг/EBITDA</td><td>3,5</td><td>2,4</td><td>2,0</td></tr></table>"""
+        series = annual_series_from_html(html)
+        self.assertEqual(series["revenue"], [100.0, 120.0])
+        self.assertEqual(series["debt_ebitda"], [3.5, 2.4])
+
+    def test_nonbank_category_one_requires_full_evidence(self):
+        series = {"revenue": [100, 120], "debt_ebitda": [2.8, 2.4], "equity": [50, 60], "operating_profit": [20, 25], "fcf": [5, 6], "short_debt_ebitda": [1, .8]}
+        result = classify_nonbank(series, 35)
+        self.assertEqual(result.category, 1)
+        self.assertTrue(result.fundamental_passed)
+
+    def test_bank_capital_below_floor_blocks(self):
+        series = {"core_capital": [9, 7.9], "provisions": [10, 9], "loan_book": [10, 11], "deposits": [10, 11], "operating_income": [10, 11]}
+        self.assertFalse(classify_bank(series).bank_metrics_passed)
 
 
 if __name__ == "__main__":

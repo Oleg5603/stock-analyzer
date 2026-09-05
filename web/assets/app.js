@@ -68,14 +68,30 @@ function fundamentalFacts(fundamentals) {
   </div>`;
 }
 
+function recommendationBlock(item) {
+  if (!item) return '';
+  const potential = item.potential_pct == null ? 'не задан' : `${item.potential_pct.toLocaleString('ru-RU')}%`;
+  return `<div class="recommendation ${item.status}"><p class="eyebrow">ИТОГ СКАНЕРА</p><h4>${item.title}</h4><p>${item.message}</p><b>Потенциал по цели: ${potential}</b></div>`;
+}
+
+function classificationBlock(item) {
+  if (!item) return '';
+  const category = item.category == null ? '—' : item.category;
+  const rows = (item.reasons || []).map((reason) => `<li>${reason}</li>`).join('');
+  const series = Object.entries(item.annual_series || {}).map(([key, values]) => `<div class="metric"><b>${values.join(' → ')}</b><span>${key}</span></div>`).join('');
+  return `<div class="technical-facts"><p><b>Категория · годовые МСФО</b> · статус: ${item.status}</p><div class="metrics"><div class="metric"><b>${category}</b><span>расчётная категория</span></div>${series}</div><ul class="classification-reasons">${rows}</ul><p class="form-note"><a href="${item.annual_source_url}" target="_blank" rel="noreferrer">Открыть годовой источник</a>. Ряды без нужного показателя не дополняются предположениями.</p></div>`;
+}
+
 function renderResult(data) {
   const range = data.position_min_pct == null ? 'не задан' : `${data.position_min_pct}–${data.position_max_pct}%`;
   $('#result').className = 'verdict ' + data.decision;
   $('#result').innerHTML = `<h3>${humanDecision(data.decision)}</h3>
     <p>${data.ticker} · достоверность: ${data.confidence === 'high' ? 'высокая' : data.confidence === 'medium' ? 'средняя' : 'требуется уточнение'}</p>
     <div class="metrics"><div class="metric"><b>${data.category ?? '—'}</b><span>категория</span></div><div class="metric"><b>${range}</b><span>диапазон веса</span></div><div class="metric"><b>${data.projected_sector_pct ?? '—'}%</b><span>сектор после добавления</span></div></div>
+    ${recommendationBlock(data.recommendation)}
     ${technicalFacts(data.technical)}
     ${fundamentalFacts(data.fundamentals)}
+    ${classificationBlock(data.classification)}
     <ul class="rules">${data.outcomes.map((rule) => `<li><span class="rule-status ${rule.status}">${rule.rule_id}<br>${humanStatus(rule.status)}</span><span>${rule.message}</span></li>`).join('')}</ul>`;
 }
 
@@ -88,6 +104,10 @@ async function analyze(event) {
   const proposed = $('#weight').value === '' ? undefined : Number($('#weight').value);
   const payload = { ticker, portfolio: sector && occupied ? [{ ticker: '__SECTOR__', sector, weight_pct: occupied }] : [] };
   if (proposed !== undefined) payload.proposed_position_pct = proposed;
+  const target = $('#target-price').value === '' ? undefined : Number($('#target-price').value);
+  if (target !== undefined) payload.target_price = target;
+  if ($('#h4-confirmed').checked) payload.h4_confirmed = true;
+  if ($('#volume-confirmed').checked) payload.volume_profile_confirmed = true;
   const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const result = await response.json();
   if (!response.ok) { announce(result.error || 'Не удалось выполнить проверку'); return; }
