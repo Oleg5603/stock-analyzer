@@ -2,7 +2,7 @@ import unittest
 
 from stock_analyzer.csvio import import_companies_csv
 from stock_analyzer.models import Company, PortfolioPosition
-from stock_analyzer.moex import BLUE_CHIP_SECTORS, companies_from_iss, technical_from_candles, _rows
+from stock_analyzer.moex import BLUE_CHIP_SECTORS, DailyTechnicalSnapshot, companies_from_iss, technical_from_candles, _rows
 from stock_analyzer.rules import analyze_company
 from stock_analyzer.smartlab import fundamental_from_html
 from stock_analyzer.classification import classify_bank, classify_nonbank
@@ -10,6 +10,7 @@ from stock_analyzer.smartlab import annual_series_from_html
 from unittest.mock import patch
 
 from stock_analyzer.official_reports import _pdf_link_from_page, official_report_source, short_debt_from_text
+from stock_analyzer.service import AnalyzerService
 
 
 class RulesTests(unittest.TestCase):
@@ -112,12 +113,27 @@ class RulesTests(unittest.TestCase):
         self.assertIsNotNone(source)
         self.assertEqual(source["status"], "page_verified")
         self.assertIn("polyus.com", source["page_url"])
+        self.assertIn("novatek.ru", official_report_source("NVTK")["page_url"])
 
     def test_pdf_discovery_prefers_requested_year(self):
         html = b'<a href="old.pdf">Report 2024</a><a href="fresh.pdf">Report 2025</a>'
         with patch("stock_analyzer.official_reports._download", return_value=html):
             report_url = _pdf_link_from_page("https://issuer.example/reports/", 2025)
         self.assertEqual(report_url, "https://issuer.example/reports/fresh.pdf")
+
+    def test_blue_chip_scan_queues_complete_d1_for_manual_checks(self):
+        company = Company(ticker="TEST", name="Тест", sector="Нефть и газ")
+        technical = DailyTechnicalSnapshot("TEST", "2026-09-05", 110, 100, 110, 100, 1000, 1100, True, True, True)
+        series = {
+            "revenue": [100, 120], "debt_ebitda": [2.8, 2.4], "equity": [50, 60],
+            "operating_profit": [20, 25], "fcf": [5, 6],
+        }
+        with patch("stock_analyzer.service.fetch_blue_chip_companies", return_value=[company]), \
+             patch("stock_analyzer.service.fetch_daily_technical", return_value=technical), \
+             patch("stock_analyzer.service.fetch_annual_series", return_value=(series, "https://issuer.example/report")):
+            result = AnalyzerService().scan_blue_chips()
+        self.assertEqual(result["items"][0]["status"], "review")
+        self.assertTrue(result["items"][0]["base_series_ready"])
 
 
 if __name__ == "__main__":

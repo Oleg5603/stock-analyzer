@@ -76,6 +76,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             if path == "/api/import/moex-blue-chips":
                 self._send(200, self.service.import_blue_chips())
                 return
+            if path == "/api/scan/moex-blue-chips":
+                self._send(200, self.service.scan_blue_chips())
+                return
             payload = json.loads(raw or b"{}")
             if path == "/api/analyze":
                 self._send(200, self.service.analyze(payload))

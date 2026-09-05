@@ -76,6 +76,16 @@ function recommendationBlock(item) {
   return `<div class="recommendation ${item.status}"><p class="eyebrow">ИТОГ СКАНЕРА</p><h4>${item.title}</h4><p>${item.message}</p><b>Потенциал по цели: ${potential}</b></div>`;
 }
 
+function batchScanBlock(data) {
+  const rows = data.items.map((item) => {
+    const foundation = item.fundamental_passed ? 'пройден' : item.base_series_ready ? 'базовые данные есть' : 'проверить';
+    const facts = [`D1: ${item.d1_confirmed ? 'да' : 'нет'}`, `фундамент: ${foundation}`].join(' · ');
+    return `<li><span class="rule-status ${item.status === 'review' ? 'passed' : item.status === 'exclude_now' ? 'failed' : 'warning'}">${item.ticker}<br>${item.title}</span><span><b>${item.name}</b><br>${facts}<br>${(item.reasons || []).join('; ')}</span></li>`;
+  }).join('');
+  $('#result').className = 'verdict manual_review';
+  $('#result').innerHTML = `<h3>Предварительная очередь голубых фишек</h3><p>${data.source}</p><p>${data.note}</p><ul class="rules">${rows}</ul>`;
+}
+
 function classificationBlock(item) {
   if (!item) return '';
   const category = item.category == null ? '—' : item.category;
@@ -157,6 +167,19 @@ $('#blue-chips-import').addEventListener('click', async () => {
     await loadCompanies();
   } catch (error) { announce(error.message); }
   finally { button.disabled = false; button.textContent = 'Только голубые фишки'; }
+});
+
+$('#blue-chips-scan').addEventListener('click', async () => {
+  const button = $('#blue-chips-scan');
+  button.disabled = true; button.textContent = 'Проверяю…'; announce('Проверяю D1 и доступные годовые данные по голубым фишкам. Это может занять до минуты…');
+  try {
+    const response = await fetch('/api/scan/moex-blue-chips', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Не удалось выполнить пакетную проверку');
+    for (const item of result.items) state.verdicts[item.ticker] = { status: item.status === 'review' ? 'watch' : item.status };
+    renderCompanies(); batchScanBlock(result); announce(`Готово: проверено ${result.items.length} голубых фишек. Сначала показаны те, где D1 и доступные фундаментальные данные не дали блокер.`);
+  } catch (error) { announce(error.message); }
+  finally { button.disabled = false; button.textContent = 'Проверить голубые фишки'; }
 });
 
 $('#companies').addEventListener('click', (event) => {

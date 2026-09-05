@@ -1,7 +1,19 @@
 {
+  "GAZP": {
+    "issuer": "ПАО «Газпром»",
+    "page_url": "https://www.gazprom.ru/investors/disclosure/reports/2025/",
+    "report_type": "Консолидированная финансовая отчетность по МСФО",
+    "status": "page_verified"
+  },
   "LKOH": {
     "issuer": "ПАО «ЛУКОЙЛ»",
     "page_url": "https://lukoil.ru/InvestorAndShareholderCenter/FinancialReports",
+    "report_type": "Консолидированная финансовая отчетность по МСФО",
+    "status": "page_verified"
+  },
+  "NVTK": {
+    "issuer": "ПАО «НОВАТЭК»",
+    "page_url": "https://www.novatek.ru/ru/investors/results/",
     "report_type": "Консолидированная финансовая отчетность по МСФО",
     "status": "page_verified"
   },

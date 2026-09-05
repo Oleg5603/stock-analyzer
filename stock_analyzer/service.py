@@ -51,6 +51,43 @@ class AnalyzerService:
         evidence = short_debt_from_official_source(ticker, year)
         return evidence.to_dict() | {"ticker": ticker.upper(), "year": year}
 
+    def scan_blue_chips(self) -> dict[str, Any]:
+        """Run the automatable part of the checklist for the MOEX blue chips.
+
+        H4, Volume Profile and target price intentionally stay outside this
+        batch run, so it produces a review queue rather than buy signals.
+        """
+        imported = fetch_blue_chip_companies()
+        with self._lock:
+            self._companies.update({company.ticker: company for company in imported})
+        items: list[dict[str, Any]] = []
+        for company in imported:
+            try:
+                technical = fetch_daily_technical(company.ticker)
+                annual_series, source_url = fetch_annual_series(company.ticker)
+                classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, None)
+                fundamental = classification.bank_metrics_passed if company.is_bank else classification.fundamental_passed
+                base_series_ready = all(len(annual_series.get(key, [])) >= 2 for key in ("revenue", "debt_ebitda", "equity", "operating_profit", "fcf"))
+                if not technical.trend_confirmed:
+                    status, title = "exclude_now", "Не рассматривать сейчас"
+                elif fundamental is True or (not company.is_bank and base_series_ready):
+                    status, title = "review", "Проверить долг, H4 и объёмные зоны"
+                else:
+                    status, title = "watch", "Наблюдать: данных недостаточно"
+                items.append({
+                    "ticker": company.ticker, "name": company.name, "sector": company.sector,
+                    "last_price": company.last_price, "status": status, "title": title,
+                    "d1_confirmed": technical.trend_confirmed, "fundamental_passed": fundamental,
+                    "base_series_ready": base_series_ready,
+                    "category": classification.category, "reasons": classification.reasons,
+                    "annual_source_url": source_url,
+                })
+            except (URLError, TimeoutError, OSError, ValueError) as exc:
+                items.append({"ticker": company.ticker, "name": company.name, "sector": company.sector, "status": "unavailable", "title": "Данные временно недоступны", "reasons": [str(exc)]})
+        ranks = {"review": 0, "watch": 1, "exclude_now": 2, "unavailable": 3}
+        items.sort(key=lambda item: (ranks[item["status"]], item["ticker"]))
+        return {"items": items, "source": "MOEX ISS + публичные годовые МСФО Smart-Lab", "note": "Это предварительная очередь: H4, Volume Profile, цель и лимит портфеля не проверялись."}
+
     def analyze(self, payload: dict[str, Any]) -> dict[str, Any]:
         company_data = payload.get("company")
         if company_data:
