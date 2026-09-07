@@ -7,6 +7,13 @@ function flag(value) {
   return '<span class="mini-status unknown">проверить</span>';
 }
 
+function shortDebtStatus(item) {
+  if (!item) return '<span class="mini-status unknown">нет источника</span>';
+  if (item.status === 'found') return '<span class="mini-status yes">найдено</span>';
+  if (item.status === 'not_found') return '<span class="mini-status no">нет строки</span>';
+  return '<span class="mini-status unknown">проверить</span>';
+}
+
 function announce(text) {
   const node = $('#import-message');
   node.textContent = text;
@@ -16,13 +23,13 @@ function announce(text) {
 function renderCompanies() {
   const target = $('#companies');
   if (!state.companies.length) {
-    target.innerHTML = '<tr><td colspan="8" class="empty">Загрузите CSV или обновите список с MOEX.</td></tr>';
+    target.innerHTML = '<tr><td colspan="9" class="empty">Загрузите CSV или обновите список с MOEX.</td></tr>';
     return;
   }
   const query = state.search.trim().toLocaleUpperCase('ru-RU');
   const found = state.companies.filter((company) => !query || `${company.ticker} ${company.name}`.toLocaleUpperCase('ru-RU').includes(query));
   if (!found.length) {
-    target.innerHTML = '<tr><td colspan="8" class="empty">По этому тикеру или названию ничего не найдено. Измените запрос или очистите поле поиска.</td></tr>';
+    target.innerHTML = '<tr><td colspan="9" class="empty">По этому тикеру или названию ничего не найдено. Измените запрос или очистите поле поиска.</td></tr>';
     return;
   }
   const rank = (company) => state.verdicts[company.ticker]?.status === 'consider' ? 0 : 1;
@@ -31,6 +38,7 @@ function renderCompanies() {
     <td>${company.ticker}</td><td>${company.name}</td><td>${company.last_price == null ? '—' : company.last_price.toLocaleString('ru-RU')}</td><td>${company.sector}</td>
     <td>${company.category ?? '—'}</td>
     <td>${flag(company.is_bank ? company.bank_metrics_passed : company.fundamental_passed)}</td>
+    <td>${shortDebtStatus(company.short_debt)}</td>
     <td>${flag(company.d1_confirmed && company.h4_confirmed && company.volume_profile_confirmed)}</td>
     <td>${state.verdicts[company.ticker]?.status === 'consider' ? '<span class="mini-status yes">можно рассматривать</span>' : ''}<button class="table-action" data-ticker="${company.ticker}">Проверить</button></td>
   </tr>`).join('');
@@ -90,6 +98,17 @@ function batchScanBlock(data) {
   }).join('');
   $('#result').className = 'verdict manual_review';
   $('#result').innerHTML = `<h3>Предварительная очередь голубых фишек</h3><p>${data.source}</p><p>${data.note}</p><ul class="rules">${rows}</ul>`;
+}
+
+function debtBatchBlock(data) {
+  const rows = data.items.map((item) => {
+    const amount = item.amount == null ? 'не распознана' : item.amount.toLocaleString('ru-RU');
+    const state = item.status === 'found' ? 'passed' : item.status === 'not_found' ? 'failed' : 'warning';
+    const label = item.status === 'found' ? 'НАЙДЕНО' : item.status === 'not_found' ? 'НЕТ СТРОКИ' : 'ПРОВЕРИТЬ';
+    return `<li><span class="rule-status ${state}">${item.ticker}<br>${label}</span><span><b>${item.issuer}</b><br>Сумма: ${amount}. ${item.note}<br><a href="${item.source_url || item.page_url}" target="_blank" rel="noreferrer">Открыть источник</a></span></li>`;
+  }).join('');
+  $('#result').className = 'verdict manual_review';
+  $('#result').innerHTML = `<h3>Краткосрочный долг: доказательства</h3><p>${data.source} · ${data.year}</p><p>${data.note}</p><ul class="rules">${rows || '<li>Для загруженных компаний пока нет подтверждённых страниц раскрытия.</li>'}</ul>`;
 }
 
 function classificationBlock(item) {
@@ -186,6 +205,18 @@ $('#blue-chips-scan').addEventListener('click', async () => {
     renderCompanies(); batchScanBlock(result); announce(`Готово: проверено ${result.items.length} голубых фишек. Сначала показаны те, где D1 и доступные фундаментальные данные не дали блокер.`);
   } catch (error) { announce(error.message); }
   finally { button.disabled = false; button.textContent = 'Проверить голубые фишки'; }
+});
+
+$('#short-debt-scan').addEventListener('click', async () => {
+  const button = $('#short-debt-scan');
+  button.disabled = true; button.textContent = 'Читаю отчёты…'; announce('Читаю только подтверждённые официальные страницы эмитентов. PDF может потребовать ручной проверки…');
+  try {
+    const response = await fetch('/api/official-short-debt/batch', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Не удалось собрать краткосрочный долг');
+    await loadCompanies(); debtBatchBlock(result); announce(`Готово: найдено значений ${result.found} из ${result.items.length}. Категории не менялись без проверки единиц и EBITDA.`);
+  } catch (error) { announce(error.message); }
+  finally { button.disabled = false; button.textContent = 'Собрать краткосрочный долг'; }
 });
 
 $('#companies').addEventListener('click', (event) => {

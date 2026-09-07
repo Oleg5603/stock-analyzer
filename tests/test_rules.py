@@ -9,7 +9,7 @@ from stock_analyzer.classification import classify_bank, classify_nonbank
 from stock_analyzer.smartlab import annual_series_from_html
 from unittest.mock import patch
 
-from stock_analyzer.official_reports import _pdf_link_from_page, official_report_source, short_debt_from_text
+from stock_analyzer.official_reports import OfficialDebtEvidence, _pdf_link_from_page, official_report_source, short_debt_from_text
 from stock_analyzer.service import AnalyzerService
 
 
@@ -46,11 +46,12 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(len(result.errors), 1)
 
     def test_moex_payload_creates_manual_review_draft(self):
-        payload = {"securities": {"columns": ["SECID", "SECNAME", "STATUS"], "data": [["MOEX", "Мосбиржа", "A"]]}, "marketdata": {"columns": ["SECID", "LAST", "MARKETPRICE"], "data": [["MOEX", 191.2, 190.0]]}}
+        payload = {"securities": {"columns": ["SECID", "SECNAME", "STATUS", "INSTRID"], "data": [["MOEX", "Мосбиржа", "A", "EQIN"], ["AKBC", "Пай фонда", "A", "IFTF"]]}, "marketdata": {"columns": ["SECID", "LAST", "MARKETPRICE"], "data": [["MOEX", 191.2, 190.0], ["AKBC", 86.3, 86.1]]}}
         company = companies_from_iss(payload)[0]
         self.assertEqual(company.ticker, "MOEX")
         self.assertEqual(company.last_price, 191.2)
         self.assertIsNone(company.category)
+        self.assertEqual(len(companies_from_iss(payload)), 1)
 
     def test_moex_index_rows_keep_security_ids(self):
         rows = _rows({"columns": ["secids", "weight"], "data": [["SBER", 15.12]]})
@@ -115,6 +116,17 @@ class RulesTests(unittest.TestCase):
         self.assertIn("polyus.com", source["page_url"])
         self.assertIn("novatek.ru", official_report_source("NVTK")["page_url"])
 
+    def test_batch_debt_collection_keeps_evidence_outside_categories(self):
+        service = AnalyzerService()
+        service.import_csv("ticker,name,sector\nPLZL,Полюс,Металлы\nSBER,Сбербанк,Банки\n")
+        evidence = OfficialDebtEvidence(1250.5, "краткосрочные займы", "https://issuer.example/report.pdf", "found", "Строка найдена")
+        with patch("stock_analyzer.service.short_debt_from_official_source", return_value=evidence):
+            result = service.collect_official_short_debt()
+        self.assertEqual([item["ticker"] for item in result["items"]], ["PLZL"])
+        self.assertEqual(result["found"], 1)
+        self.assertIn("не подставляется", result["note"])
+        self.assertEqual(service.companies()[0]["short_debt"]["status"], "found")
+
     def test_pdf_discovery_prefers_requested_year(self):
         html = b'<a href="old.pdf">Report 2024</a><a href="fresh.pdf">Report 2025</a>'
         with patch("stock_analyzer.official_reports._download", return_value=html):
@@ -131,9 +143,14 @@ class RulesTests(unittest.TestCase):
         with patch("stock_analyzer.service.fetch_blue_chip_companies", return_value=[company]), \
              patch("stock_analyzer.service.fetch_daily_technical", return_value=technical), \
              patch("stock_analyzer.service.fetch_annual_series", return_value=(series, "https://issuer.example/report")):
-            result = AnalyzerService().scan_blue_chips()
+            service = AnalyzerService()
+            result = service.scan_blue_chips()
         self.assertEqual(result["items"][0]["status"], "review")
         self.assertTrue(result["items"][0]["base_series_ready"])
+        checked = service.companies()[0]
+        self.assertEqual(checked["category"], result["items"][0]["category"])
+        self.assertEqual(checked["fundamental_passed"], result["items"][0]["fundamental_passed"])
+        self.assertTrue(checked["d1_confirmed"])
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from .models import Company
 MOEX_TQBR_URL = (
     "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json"
     "?iss.meta=off&iss.only=securities,marketdata"
-    "&securities.columns=SECID,SHORTNAME,SECNAME,STATUS"
+    "&securities.columns=SECID,SHORTNAME,SECNAME,STATUS,INSTRID"
     "&marketdata.columns=SECID,LAST,MARKETPRICE,LASTTOPREVPRICE"
 )
 MOEX_BLUE_CHIPS_URL = "https://iss.moex.com/iss/statistics/engines/stock/markets/index/analytics/MOEXBC.json?iss.meta=off&iss.only=analytics"
@@ -61,7 +61,9 @@ def companies_from_iss(payload: dict[str, object]) -> list[Company]:
     updated_at = datetime.now(UTC).isoformat(timespec="seconds")
     companies: list[Company] = []
     for row in securities:
-        if row.get("STATUS") != "A":
+        # TQBR also contains ETF/BPIF shares. The analyzer is intentionally
+        # limited to ordinary/preferred shares, which MOEX labels EQIN.
+        if row.get("STATUS") != "A" or row.get("INSTRID") != "EQIN":
             continue
         ticker = str(row["SECID"]).upper()
         price_row = prices.get(ticker, {})

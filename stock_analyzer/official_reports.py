@@ -45,23 +45,23 @@ class _PdfLinks(HTMLParser):
             self._href = None
 
 
-def _download(url: str) -> bytes:
+def _download(url: str, timeout_seconds: int = 20) -> bytes:
     request = Request(url, headers={"User-Agent": "StockAnalyzer/0.1 (local research)"})
     try:
         import truststore
         context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     except ImportError:
         context = None
-    with urlopen(request, timeout=20, context=context) as response:
+    with urlopen(request, timeout=timeout_seconds, context=context) as response:
         data = response.read(MAX_REPORT_BYTES + 1)
     if len(data) > MAX_REPORT_BYTES:
         raise ValueError("Официальный PDF больше лимита 25 МБ")
     return data
 
 
-def _pdf_link_from_page(page_url: str, year: int | None = None) -> str | None:
+def _pdf_link_from_page(page_url: str, year: int | None = None, timeout_seconds: int = 20) -> str | None:
     parser = _PdfLinks()
-    parser.feed(_download(page_url).decode("utf-8", errors="ignore"))
+    parser.feed(_download(page_url, timeout_seconds).decode("utf-8", errors="ignore"))
     candidates = [(urljoin(page_url, href), label) for href, label in parser.links if ".pdf" in href.lower()]
     if year:
         matches = [item for item in candidates if str(year) in item[0] or str(year) in item[1]]
@@ -104,7 +104,7 @@ def official_report_source(ticker: str) -> dict[str, str] | None:
     return source if isinstance(source, dict) else None
 
 
-def short_debt_from_official_source(ticker: str, year: int = 2025) -> OfficialDebtEvidence:
+def short_debt_from_official_source(ticker: str, year: int = 2025, timeout_seconds: int = 20) -> OfficialDebtEvidence:
     """Load only an issuer-hosted PDF and return auditable debt evidence.
 
     A missing PDF, scanned report or unknown amount stays `needs_review`; the
@@ -117,13 +117,13 @@ def short_debt_from_official_source(ticker: str, year: int = 2025) -> OfficialDe
     report_url = source.get("report_url") if source.get("report_year") == str(year) else None
     if not report_url:
         try:
-            report_url = _pdf_link_from_page(page_url, year)
+            report_url = _pdf_link_from_page(page_url, year, timeout_seconds)
         except Exception:  # Network/WAF errors become a review state.
             return OfficialDebtEvidence(None, None, page_url, "needs_review", "Защищённое соединение с сайтом эмитента не прошло проверку или доступ временно ограничен. Откройте страницу вручную и повторите позже.")
     if not report_url:
         return OfficialDebtEvidence(None, None, page_url, "needs_review", f"На странице эмитента не найдена PDF-ссылка за {year} год.")
     try:
-        evidence = short_debt_from_text(_pdf_text(_download(report_url)), report_url)
+        evidence = short_debt_from_text(_pdf_text(_download(report_url, timeout_seconds)), report_url)
     except Exception:  # PDF may be a scan or protected by the issuer.
         return OfficialDebtEvidence(None, None, report_url, "needs_review", "PDF недоступен для автоматического чтения или является сканом. Значение нужно проверить в документе вручную.")
     return evidence

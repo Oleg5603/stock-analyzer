@@ -18,11 +18,12 @@ class AnalyzerService:
 
     def __init__(self) -> None:
         self._companies: dict[str, Company] = {}
+        self._short_debt: dict[str, dict[str, Any]] = {}
         self._lock = RLock()
 
     def companies(self) -> list[dict[str, Any]]:
         with self._lock:
-            return [asdict(item) for item in sorted(self._companies.values(), key=lambda x: x.ticker)]
+            return [asdict(item) | {"short_debt": self._short_debt.get(item.ticker)} for item in sorted(self._companies.values(), key=lambda x: x.ticker)]
 
     def import_csv(self, text: str) -> dict[str, Any]:
         imported = import_companies_csv(text)
@@ -51,6 +52,37 @@ class AnalyzerService:
         evidence = short_debt_from_official_source(ticker, year)
         return evidence.to_dict() | {"ticker": ticker.upper(), "year": year}
 
+    def collect_official_short_debt(self, year: int = 2025) -> dict[str, Any]:
+        """Collect auditable debt evidence only for tickers with issuer sources.
+
+        The extracted amount is deliberately not used as a debt/EBITDA ratio:
+        PDF units and the matching EBITDA period must be checked first.
+        """
+        with self._lock:
+            tickers = sorted(self._companies)
+        items: list[dict[str, Any]] = []
+        for ticker in tickers:
+            source = official_report_source(ticker)
+            if not source:
+                continue
+            evidence = short_debt_from_official_source(ticker, year, timeout_seconds=8)
+            item = evidence.to_dict() | {
+                "ticker": ticker,
+                "issuer": source.get("issuer", ticker),
+                "page_url": source["page_url"],
+            }
+            items.append(item)
+            with self._lock:
+                self._short_debt[ticker] = item
+        found = sum(item["status"] == "found" for item in items)
+        return {
+            "items": items,
+            "year": year,
+            "found": found,
+            "source": "Официальные страницы раскрытия эмитентов",
+            "note": "Сумма не подставляется в категорию до проверки единиц измерения и EBITDA за тот же период.",
+        }
+
     def scan_blue_chips(self) -> dict[str, Any]:
         """Run the automatable part of the checklist for the MOEX blue chips.
 
@@ -67,6 +99,15 @@ class AnalyzerService:
                 annual_series, source_url = fetch_annual_series(company.ticker)
                 classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, None)
                 fundamental = classification.bank_metrics_passed if company.is_bank else classification.fundamental_passed
+                checked_company = replace(
+                    company,
+                    category=classification.category,
+                    fundamental_passed=classification.fundamental_passed,
+                    bank_metrics_passed=classification.bank_metrics_passed,
+                    d1_confirmed=technical.trend_confirmed,
+                )
+                with self._lock:
+                    self._companies[company.ticker] = checked_company
                 base_series_ready = all(len(annual_series.get(key, [])) >= 2 for key in ("revenue", "debt_ebitda", "equity", "operating_profit", "fcf"))
                 if not technical.trend_confirmed:
                     status, title = "exclude_now", "Не рассматривать сейчас"
