@@ -54,6 +54,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/health":
             self._send(200, {"status": "ok", "version": "0.1.0", "trading": False})
+        elif path == "/api/scan/moex-blue-chips":
+            self._send(200, self.service.latest_blue_chip_scan())
         elif path == "/api/companies":
             self._send(200, {"items": self.service.companies()})
         elif path in {"/", "/index.html"}:

@@ -19,6 +19,7 @@ class AnalyzerService:
     def __init__(self) -> None:
         self._companies: dict[str, Company] = {}
         self._short_debt: dict[str, dict[str, Any]] = {}
+        self._blue_chip_scan: dict[str, Any] = {"items": []}
         self._lock = RLock()
 
     def companies(self) -> list[dict[str, Any]]:
@@ -47,6 +48,10 @@ class AnalyzerService:
             for company in imported:
                 self._companies[company.ticker] = company
         return {"accepted": len(imported), "total": len(self._companies), "source": "MOEX ISS / MOEXBC", "note": "Состав голубых фишек и цены загружены автоматически; методика требует ручной проверки."}
+
+    def latest_blue_chip_scan(self) -> dict[str, Any]:
+        with self._lock:
+            return dict(self._blue_chip_scan) | {"items": list(self._blue_chip_scan["items"])}
 
     def official_short_debt(self, ticker: str, year: int = 2025) -> dict[str, Any]:
         evidence = short_debt_from_official_source(ticker, year)
@@ -127,7 +132,10 @@ class AnalyzerService:
                 items.append({"ticker": company.ticker, "name": company.name, "sector": company.sector, "status": "unavailable", "title": "Данные временно недоступны", "reasons": [str(exc)]})
         ranks = {"review": 0, "watch": 1, "exclude_now": 2, "unavailable": 3}
         items.sort(key=lambda item: (ranks[item["status"]], item["ticker"]))
-        return {"items": items, "source": "MOEX ISS + публичные годовые МСФО Smart-Lab", "note": "Это предварительная очередь: H4, Volume Profile, цель и лимит портфеля не проверялись."}
+        response = {"items": items, "source": "MOEX ISS + публичные годовые МСФО Smart-Lab", "note": "Это предварительная очередь: H4, Volume Profile, цель и лимит портфеля не проверялись."}
+        with self._lock:
+            self._blue_chip_scan = response
+        return response
 
     def analyze(self, payload: dict[str, Any]) -> dict[str, Any]:
         company_data = payload.get("company")

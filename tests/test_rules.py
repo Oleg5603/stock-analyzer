@@ -151,6 +151,7 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(checked["category"], result["items"][0]["category"])
         self.assertEqual(checked["fundamental_passed"], result["items"][0]["fundamental_passed"])
         self.assertTrue(checked["d1_confirmed"])
+        self.assertEqual(service.latest_blue_chip_scan()["items"][0]["ticker"], "TEST")
 
 
 if __name__ == "__main__":

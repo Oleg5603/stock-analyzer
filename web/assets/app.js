@@ -14,6 +14,15 @@ function shortDebtStatus(item) {
   return '<span class="mini-status unknown">проверить</span>';
 }
 
+function verdictStatus(item) {
+  const status = state.verdicts[item.ticker]?.status;
+  if (status === 'consider') return '<span class="mini-status yes">можно рассматривать</span>';
+  if (status === 'exclude_now') return '<span class="mini-status no">не рассматривать</span>';
+  if (status === 'watch') return '<span class="mini-status unknown">нужна проверка</span>';
+  if (status === 'unavailable') return '<span class="mini-status unknown">данные недоступны</span>';
+  return '';
+}
+
 function announce(text) {
   const node = $('#import-message');
   node.textContent = text;
@@ -40,7 +49,7 @@ function renderCompanies() {
     <td>${flag(company.is_bank ? company.bank_metrics_passed : company.fundamental_passed)}</td>
     <td>${shortDebtStatus(company.short_debt)}</td>
     <td>${flag(company.d1_confirmed && company.h4_confirmed && company.volume_profile_confirmed)}</td>
-    <td>${state.verdicts[company.ticker]?.status === 'consider' ? '<span class="mini-status yes">можно рассматривать</span>' : ''}<button class="table-action" data-ticker="${company.ticker}">Проверить</button></td>
+    <td>${verdictStatus(company)}<button class="table-action" data-ticker="${company.ticker}">Проверить</button></td>
   </tr>`).join('');
 }
 
@@ -48,6 +57,13 @@ async function loadCompanies() {
   const response = await fetch('/api/companies');
   const data = await response.json();
   state.companies = data.items || [];
+  renderCompanies();
+}
+
+function restoreBatchScan(data) {
+  for (const item of data.items || []) {
+    state.verdicts[item.ticker] = { status: item.status === 'review' ? 'watch' : item.status };
+  }
   renderCompanies();
 }
 
@@ -201,8 +217,7 @@ $('#blue-chips-scan').addEventListener('click', async () => {
     const response = await fetch('/api/scan/moex-blue-chips', { method: 'POST' });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Не удалось выполнить пакетную проверку');
-    for (const item of result.items) state.verdicts[item.ticker] = { status: item.status === 'review' ? 'watch' : item.status };
-    renderCompanies(); batchScanBlock(result); announce(`Готово: проверено ${result.items.length} голубых фишек. Сначала показаны те, где D1 и доступные фундаментальные данные не дали блокер.`);
+    restoreBatchScan(result); batchScanBlock(result); announce(`Готово: проверено ${result.items.length} голубых фишек. Сначала показаны те, где D1 и доступные фундаментальные данные не дали блокер.`);
   } catch (error) { announce(error.message); }
   finally { button.disabled = false; button.textContent = 'Проверить голубые фишки'; }
 });
@@ -244,6 +259,8 @@ $('#company-search').addEventListener('input', (event) => {
 async function initialize() {
   try {
     await loadCompanies();
+    const scanResponse = await fetch('/api/scan/moex-blue-chips');
+    if (scanResponse.ok) restoreBatchScan(await scanResponse.json());
     if (!state.companies.length) {
       announce('Автозагрузка: получаю список TQBR и цены из публичного MOEX ISS…');
       const response = await fetch('/api/import/moex', { method: 'POST' });
