@@ -1,4 +1,4 @@
-const state = { companies: [], verdicts: {} };
+const state = { companies: [], verdicts: {}, search: '' };
 const $ = (selector) => document.querySelector(selector);
 
 function flag(value) {
@@ -19,8 +19,14 @@ function renderCompanies() {
     target.innerHTML = '<tr><td colspan="8" class="empty">Загрузите CSV или обновите список с MOEX.</td></tr>';
     return;
   }
+  const query = state.search.trim().toLocaleUpperCase('ru-RU');
+  const found = state.companies.filter((company) => !query || `${company.ticker} ${company.name}`.toLocaleUpperCase('ru-RU').includes(query));
+  if (!found.length) {
+    target.innerHTML = '<tr><td colspan="8" class="empty">По этому тикеру или названию ничего не найдено. Измените запрос или очистите поле поиска.</td></tr>';
+    return;
+  }
   const rank = (company) => state.verdicts[company.ticker]?.status === 'consider' ? 0 : 1;
-  const ordered = [...state.companies].sort((left, right) => rank(left) - rank(right) || left.ticker.localeCompare(right.ticker));
+  const ordered = [...found].sort((left, right) => rank(left) - rank(right) || left.ticker.localeCompare(right.ticker));
   target.innerHTML = ordered.map((company) => `<tr>
     <td>${company.ticker}</td><td>${company.name}</td><td>${company.last_price == null ? '—' : company.last_price.toLocaleString('ru-RU')}</td><td>${company.sector}</td>
     <td>${company.category ?? '—'}</td>
@@ -200,6 +206,10 @@ $('#result').addEventListener('click', async (event) => {
   finally { button.disabled = false; button.textContent = 'Загрузить из отчёта'; }
 });
 $('#analysis-form').addEventListener('submit', analyze);
+$('#company-search').addEventListener('input', (event) => {
+  state.search = event.target.value;
+  renderCompanies();
+});
 async function initialize() {
   try {
     await loadCompanies();

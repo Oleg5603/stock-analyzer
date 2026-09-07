@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Stock Analyzer — локальный анализ акций</title>
     <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="/assets/search.css">
   </head>
   <body>
     <header class="topbar">
@@ -34,6 +35,7 @@
           <div><p class="eyebrow">РЕЕСТР</p><h2>Компании на проверке</h2></div>
           <div class="import-actions"><button id="blue-chips-scan" type="button" class="moex-button">Проверить голубые фишки</button><button id="blue-chips-import" type="button" class="moex-button">Только голубые фишки</button><button id="moex-import" type="button" class="moex-button">Все TQBR</button><label class="import-button"><input id="csv-file" type="file" accept=".csv,text/csv">Загрузить CSV</label></div>
         </div>
+        <div class="search-row"><label class="search-field" for="company-search"><span>Поиск в реестре</span><input id="company-search" type="search" autocomplete="off" placeholder="Тикер или название компании"></label></div>
         <p class="hint">Обязательные колонки: ticker, name, sector. Остальные — category, is_bank, fundamental_passed, bank_metrics_passed, d1_confirmed, h4_confirmed, volume_profile_confirmed, evidence.</p>
         <div id="import-message" class="message" role="status"></div>
         <div class="table-wrap">
