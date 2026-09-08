@@ -56,7 +56,11 @@
           <label>Целевая цена <input id="target-price" type="number" min="0" step="0.01" placeholder="Например, 320"></label>
           <label>Источник целевой цены <input id="target-source" type="text" maxlength="300" placeholder="Ссылка или название обзора"></label>
           <label>Дата оценки <input id="target-as-of" type="date"></label>
+          <label class="check"><input id="target-confirmed" type="checkbox"> Цель подтверждена: источник и дата сверены</label>
           <label>Краткосрочный долг/EBITDA, 2 года <input id="short-debt-ebitda" inputmode="decimal" placeholder="0,8; 0,7"></label>
+          <label>H4: зона входа <input id="h4-entry-zone" type="text" maxlength="80" placeholder="Например, 2 450–2 500"></label>
+          <label>Volume Profile: зона 1 <input id="volume-zone-one" type="text" maxlength="80" placeholder="Например, 2 420–2 460"></label>
+          <label>Volume Profile: зона 2 <input id="volume-zone-two" type="text" maxlength="80" placeholder="Например, 2 520–2 560"></label>
           <label class="check"><input id="h4-confirmed" type="checkbox"> H4: зона входа подтверждена</label>
           <label class="check"><input id="volume-confirmed" type="checkbox"> Volume Profile: две зоны подтверждены</label>
           <p class="form-note">Ввод долга — только после ручной сверки отчёта, единиц и двух одинаковых годовых периодов. Заявки и подключение к QUIK здесь отсутствуют.</p>

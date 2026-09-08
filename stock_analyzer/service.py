@@ -300,6 +300,9 @@ class AnalyzerService:
         potential = round((float(target) / technical.close - 1) * 100, 2) if target else None
         target_source = str(payload.get("target_source", "")).strip()
         target_as_of = str(payload.get("target_as_of", "")).strip()
+        target_confirmed = payload.get("target_confirmed") is True
+        h4_entry_zone = str(payload.get("h4_entry_zone", "")).strip()
+        volume_zones_confirmed = [str(value).strip() for value in payload.get("volume_zones_confirmed", []) if str(value).strip()]
         classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, potential)
         company = replace(company, category=classification.category, fundamental_passed=classification.fundamental_passed, bank_metrics_passed=classification.bank_metrics_passed, d1_confirmed=technical.trend_confirmed, h4_confirmed=payload.get("h4_confirmed", company.h4_confirmed), volume_profile_confirmed=payload.get("volume_profile_confirmed", company.volume_profile_confirmed))
         portfolio = [PortfolioPosition.from_mapping(row) for row in payload.get("portfolio", [])]
@@ -319,12 +322,19 @@ class AnalyzerService:
                 "price": float(target) if target else None,
                 "source": target_source or None,
                 "as_of": target_as_of or None,
+                "confirmed": target_confirmed,
+            },
+            "manual_technical_evidence": {
+                "h4_entry_zone": h4_entry_zone or None,
+                "volume_zones": volume_zones_confirmed,
             },
         }
         if not technical.trend_confirmed:
             recommendation = ("exclude_now", "Не рассматривать сейчас", "Дневной тренд не подтверждён.")
-        elif any(value is None for value in (company.category, company.h4_confirmed, company.volume_profile_confirmed, target)) or not target_source or not target_as_of:
-            recommendation = ("watch", "Наблюдать", "Нужно подтвердить категорию, H4, Volume Profile, целевую цену и её источник.")
+        elif (any(value is None for value in (company.category, company.h4_confirmed, company.volume_profile_confirmed, target))
+              or not target_source or not target_as_of or not target_confirmed or not h4_entry_zone
+              or len(volume_zones_confirmed) != 2):
+            recommendation = ("watch", "Наблюдать", "Нужны категория, H4 с зоной входа, две объёмные зоны и подтверждённая цель с источником.")
         elif result.decision == "candidate" and (potential is None or potential >= 10):
             recommendation = ("consider", "Можно рассматривать", "Все заданные фильтры пройдены; проверьте план входа.")
         else:

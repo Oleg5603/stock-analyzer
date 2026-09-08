@@ -144,8 +144,18 @@ function recommendationBlock(item) {
 function targetEvidenceBlock(item) {
   const target = item?.target_evidence;
   if (!target?.price) return '<p class="form-note">Целевая цена не задана: потенциал не рассчитывается.</p>';
-  if (!target.source || !target.as_of) return '<p class="form-note"><b>Нужна проверка цели:</b> добавьте источник и дату оценки.</p>';
+  if (!target.source || !target.as_of || !target.confirmed) return '<p class="form-note"><b>Нужна проверка цели:</b> добавьте источник, дату оценки и отметьте сверку.</p>';
   return `<p class="form-note"><b>Целевая цена:</b> ${target.price.toLocaleString('ru-RU')} · ${target.as_of} · источник: ${target.source}</p>`;
+}
+
+function manualTechnicalEvidenceBlock(item) {
+  const evidence = item?.manual_technical_evidence;
+  if (!evidence) return '';
+  const zones = evidence.volume_zones || [];
+  return `<div class="technical-facts"><p><b>Подтверждение на графике</b></p>
+    <p class="form-note"><b>H4, зона входа:</b> ${evidence.h4_entry_zone || 'не указана'}.</p>
+    <p class="form-note"><b>Две объёмные зоны:</b> ${zones.length === 2 ? zones.join(' · ') : 'нужно указать обе зоны'}.</p>
+  </div>`;
 }
 
 function batchScanBlock(data) {
@@ -230,6 +240,7 @@ function renderResult(data) {
     ${targetEvidenceBlock(data.classification)}
     ${technicalFacts(data.technical)}
     ${intradayFacts(data.intraday)}
+    ${manualTechnicalEvidenceBlock(data.classification)}
     ${fundamentalFacts(data.fundamentals)}
     ${classificationBlock(data.classification)}
     ${manualDebtBlock(data.classification)}
@@ -253,10 +264,15 @@ async function analyze(event) {
   const targetAsOf = $('#target-as-of').value;
   if (targetSource) payload.target_source = targetSource;
   if (targetAsOf) payload.target_as_of = targetAsOf;
+  if ($('#target-confirmed').checked) payload.target_confirmed = true;
   const shortDebt = $('#short-debt-ebitda').value.trim();
   if (shortDebt) payload.short_debt_ebitda = shortDebt;
   if ($('#h4-confirmed').checked) payload.h4_confirmed = true;
   if ($('#volume-confirmed').checked) payload.volume_profile_confirmed = true;
+  const h4EntryZone = $('#h4-entry-zone').value.trim();
+  const volumeZones = [$('#volume-zone-one').value.trim(), $('#volume-zone-two').value.trim()].filter(Boolean);
+  if (h4EntryZone) payload.h4_entry_zone = h4EntryZone;
+  if (volumeZones.length) payload.volume_zones_confirmed = volumeZones;
   const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const result = await response.json();
   if (!response.ok) { announce(result.error || 'Не удалось выполнить проверку'); return; }
