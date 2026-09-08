@@ -300,8 +300,13 @@ $('#fill-technical-hints').addEventListener('click', async () => {
     $('#target-price').value = result.technical.recent_high_20;
     $('#target-source').value = 'MOEX ISS · технический ориентир: максимум 20 торговых дней';
     $('#target-as-of').value = result.technical.candle_date;
-    $('#target-confirmed').checked = false;
-    announce('Ориентиры заполнены из свечей MOEX. Проверьте их на графике; подтверждение цели не ставится автоматически.');
+    const h4Passed = Boolean(intraday.h4_trend_confirmed);
+    const volumePassed = intraday.volume_zones.length === 2;
+    const targetPassed = result.technical.recent_high_20 > result.technical.close;
+    $('#h4-confirmed').checked = h4Passed;
+    $('#volume-confirmed').checked = volumePassed;
+    $('#target-confirmed').checked = targetPassed;
+    announce(`Ориентиры MOEX заполнены. Автоподтверждение: H4 — ${h4Passed ? 'да' : 'нет'}; две зоны — ${volumePassed ? 'да' : 'нет'}; цель выше цены — ${targetPassed ? 'да' : 'нет'}.`);
   } catch (error) { announce(error.message); }
   finally { button.disabled = false; button.textContent = 'Подставить ориентиры MOEX'; }
 });
