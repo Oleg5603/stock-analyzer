@@ -2,7 +2,7 @@ import unittest
 
 from stock_analyzer.csvio import import_companies_csv
 from stock_analyzer.models import Company, PortfolioPosition
-from stock_analyzer.moex import BLUE_CHIP_SECTORS, DailyTechnicalSnapshot, companies_from_iss, technical_from_candles, _rows
+from stock_analyzer.moex import BLUE_CHIP_SECTORS, DailyTechnicalSnapshot, IntradayTechnicalSnapshot, companies_from_iss, intraday_from_candles, technical_from_candles, _rows
 from stock_analyzer.rules import analyze_company
 from stock_analyzer.smartlab import fundamental_from_html
 from stock_analyzer.classification import classify_bank, classify_nonbank
@@ -68,6 +68,17 @@ class RulesTests(unittest.TestCase):
         self.assertTrue(snapshot.price_above_sma50)
         self.assertTrue(snapshot.rising_high)
         self.assertTrue(snapshot.trend_confirmed)
+
+    def test_intraday_proxy_groups_candles_and_marks_h4_trend(self):
+        rows = []
+        for block in range(6):
+            for minute in range(6):
+                value = 100 + block * 2 + minute / 10
+                rows.append([f"2026-09-0{block + 1}T08:{minute}0:00", value + 1, value - 1, value, 1000])
+        payload = {"candles": {"columns": ["begin", "high", "low", "close", "volume"], "data": rows}}
+        snapshot = intraday_from_candles("TEST", payload)
+        self.assertTrue(snapshot.h4_trend_confirmed)
+        self.assertEqual(len(snapshot.volume_zones), 2)
 
     def test_smartlab_parser_keeps_latest_public_facts(self):
         html = """<table>
@@ -150,12 +161,14 @@ class RulesTests(unittest.TestCase):
     def test_blue_chip_scan_queues_complete_d1_for_manual_checks(self):
         company = Company(ticker="TEST", name="Тест", sector="Нефть и газ")
         technical = DailyTechnicalSnapshot("TEST", "2026-09-05", 110, 100, 110, 100, 1000, 1100, True, True, True)
+        intraday = IntradayTechnicalSnapshot("TEST", 111, 105, 112, 108, True, [104, 109])
         series = {
             "revenue": [100, 120], "debt_ebitda": [2.8, 2.4], "equity": [50, 60],
             "operating_profit": [20, 25], "fcf": [5, 6],
         }
         with patch("stock_analyzer.service.fetch_blue_chip_companies", return_value=[company]), \
              patch("stock_analyzer.service.fetch_daily_technical", return_value=technical), \
+             patch("stock_analyzer.service.fetch_intraday_technical", return_value=intraday), \
              patch("stock_analyzer.service.fetch_annual_series", return_value=(series, "https://issuer.example/report")):
             service = AnalyzerService()
             result = service.scan_blue_chips()
@@ -165,6 +178,7 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(checked["category"], result["items"][0]["category"])
         self.assertEqual(checked["fundamental_passed"], result["items"][0]["fundamental_passed"])
         self.assertTrue(checked["d1_confirmed"])
+        self.assertTrue(checked["intraday"]["h4_trend_confirmed"])
         self.assertEqual(checked["annual_coverage"], {"available": 5, "required": 6, "missing": ["short_debt_ebitda"]})
         self.assertEqual(service.latest_blue_chip_scan()["items"][0]["ticker"], "TEST")
 

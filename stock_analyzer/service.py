@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 from threading import RLock
 from typing import Any
+from urllib.error import URLError
 
 from .csvio import import_companies_csv
 from .classification import classify_bank, classify_nonbank
 from .models import Company, PortfolioPosition
-from .moex import fetch_blue_chip_companies, fetch_daily_technical, fetch_tqbr_companies
+from .moex import fetch_blue_chip_companies, fetch_daily_technical, fetch_intraday_technical, fetch_tqbr_companies
 from .official_reports import official_report_source, short_debt_from_official_source
 from .rules import analyze_company
 from .smartlab import fetch_annual_series, fetch_public_fundamentals
@@ -36,6 +37,7 @@ class AnalyzerService:
         self._companies: dict[str, Company] = {}
         self._short_debt: dict[str, dict[str, Any]] = {}
         self._annual_coverage: dict[str, dict[str, Any]] = {}
+        self._intraday: dict[str, dict[str, Any]] = {}
         self._blue_chip_scan: dict[str, Any] = {"items": []}
         self._lock = RLock()
 
@@ -44,6 +46,7 @@ class AnalyzerService:
             return [asdict(item) | {
                 "short_debt": self._short_debt.get(item.ticker),
                 "annual_coverage": self._annual_coverage.get(item.ticker),
+                "intraday": self._intraday.get(item.ticker),
             } for item in sorted(self._companies.values(), key=lambda x: x.ticker)]
 
     def import_csv(self, text: str) -> dict[str, Any]:
@@ -151,6 +154,13 @@ class AnalyzerService:
         for company in imported:
             try:
                 technical = fetch_daily_technical(company.ticker)
+                # The short intraday window is an aid for the chart review.
+                # Do not discard an otherwise usable D1/fundamental result if
+                # MOEX has not exposed enough recent H4 data for this ticker.
+                try:
+                    intraday = fetch_intraday_technical(company.ticker)
+                except (URLError, TimeoutError, OSError, ValueError):
+                    intraday = None
                 annual_series, source_url = fetch_annual_series(company.ticker)
                 classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, None)
                 fundamental = classification.bank_metrics_passed if company.is_bank else classification.fundamental_passed
@@ -167,6 +177,8 @@ class AnalyzerService:
                 with self._lock:
                     self._companies[company.ticker] = checked_company
                     self._annual_coverage[company.ticker] = coverage
+                    if intraday is not None:
+                        self._intraday[company.ticker] = intraday.to_dict()
                 base_series_ready = all(len(annual_series.get(key, [])) >= 2 for key in ("revenue", "debt_ebitda", "equity", "operating_profit", "fcf"))
                 if not technical.trend_confirmed:
                     status, title = "exclude_now", "Не рассматривать сейчас"
@@ -178,6 +190,8 @@ class AnalyzerService:
                     "ticker": company.ticker, "name": company.name, "sector": company.sector,
                     "last_price": company.last_price, "status": status, "title": title,
                     "d1_confirmed": technical.trend_confirmed, "fundamental_passed": fundamental,
+                    "h4_trend_hint": intraday.h4_trend_confirmed if intraday else None,
+                    "volume_zones": intraday.volume_zones if intraday else [],
                     "base_series_ready": base_series_ready,
                     "category": classification.category, "reasons": classification.reasons,
                     "annual_source_url": source_url,
@@ -202,6 +216,7 @@ class AnalyzerService:
             if company is None:
                 raise KeyError(f"Инструмент {ticker!r} не найден")
         technical = fetch_daily_technical(company.ticker)
+        intraday = fetch_intraday_technical(company.ticker)
         fundamentals = fetch_public_fundamentals(company.ticker)
         annual_series, annual_source_url = fetch_annual_series(company.ticker)
         manual_short_debt = _manual_short_debt_ebitda(payload.get("short_debt_ebitda"))
@@ -216,6 +231,7 @@ class AnalyzerService:
         result = analyze_company(company, portfolio, float(proposed) if proposed is not None else None)
         response = result.to_dict()
         response["technical"] = technical.to_dict()
+        response["intraday"] = intraday.to_dict()
         response["fundamentals"] = fundamentals.to_dict()
         response["classification"] = classification.to_dict() | {
             "annual_source_url": annual_source_url,

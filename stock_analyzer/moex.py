@@ -49,6 +49,27 @@ class DailyTechnicalSnapshot:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class IntradayTechnicalSnapshot:
+    """A short-horizon H4 proxy and volume-context hint from MOEX candles.
+
+    It is intentionally evidence, not a replacement for a trader's H4 chart
+    or a manually drawn Volume Profile.
+    """
+
+    ticker: str
+    latest_close: float
+    sma5_h4: float
+    recent_high: float
+    previous_high: float
+    h4_trend_confirmed: bool
+    volume_zones: list[float]
+    source: str = "MOEX ISS / 10-минутные свечи, агрегация в H4"
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
 def _rows(block: dict[str, object]) -> list[dict[str, object]]:
     columns = block.get("columns", [])
     data = block.get("data", [])
@@ -135,6 +156,61 @@ def fetch_daily_technical(ticker: str, timeout_seconds: int = 20) -> DailyTechni
         f"&from={date_from}"
     )
     return technical_from_candles(normalized, _get_json(url, timeout_seconds))
+
+
+def intraday_from_candles(ticker: str, payload: dict[str, object]) -> IntradayTechnicalSnapshot:
+    """Aggregate recent ten-minute candles into completed four-hour blocks."""
+    candles = _rows(payload["candles"])
+    buckets: dict[str, list[dict[str, object]]] = {}
+    for candle in candles:
+        begin = datetime.fromisoformat(str(candle["begin"]))
+        # MOEX results use UTC timestamps.  The deterministic UTC bucket is
+        # only a technical proxy; the UI keeps the final H4 confirmation manual.
+        bucket = begin.replace(hour=(begin.hour // 4) * 4, minute=0, second=0, microsecond=0).isoformat()
+        buckets.setdefault(bucket, []).append(candle)
+    bars: list[tuple[float, float, float, float]] = []
+    for rows in buckets.values():
+        if len(rows) < 6:  # do not treat a partial session fragment as H4
+            continue
+        closes = [float(row["close"]) for row in rows]
+        bars.append((closes[-1], max(float(row["high"]) for row in rows), min(float(row["low"]) for row in rows), sum(float(row["volume"]) for row in rows)))
+    if len(bars) < 6:
+        raise ValueError(f"MOEX ISS вернул только {len(bars)} завершённых H4-блоков; нужно не менее 6")
+    closes = [item[0] for item in bars]
+    highs = [item[1] for item in bars]
+    low, high = min(item[2] for item in bars), max(item[1] for item in bars)
+    width = (high - low) / 12 if high > low else max(high * 0.001, 0.01)
+    volume_bins = [0.0] * 12
+    for close, _, _, volume in bars:
+        index = min(11, max(0, int((close - low) / width)))
+        volume_bins[index] += volume
+    top_bins = sorted(range(12), key=lambda index: volume_bins[index], reverse=True)[:2]
+    zones = sorted(round(low + (index + 0.5) * width, 6) for index in top_bins)
+    sma5 = fmean(closes[-5:])
+    recent_high = max(highs[-3:])
+    previous_high = max(highs[-6:-3])
+    return IntradayTechnicalSnapshot(
+        ticker=ticker.upper(), latest_close=round(closes[-1], 6), sma5_h4=round(sma5, 6),
+        recent_high=round(recent_high, 6), previous_high=round(previous_high, 6),
+        h4_trend_confirmed=closes[-1] > sma5 and recent_high > previous_high,
+        volume_zones=zones,
+    )
+
+
+def fetch_intraday_technical(ticker: str, timeout_seconds: int = 20) -> IntradayTechnicalSnapshot:
+    normalized = ticker.strip().upper()
+    if not normalized.isalnum():
+        raise ValueError("Тикер может содержать только буквы и цифры")
+    # A short recent window keeps the public request bounded.  The candles are
+    # 10-minute bars because this MOEX board endpoint reliably exposes them.
+    date_from = (datetime.now(UTC).date() - timedelta(days=7)).isoformat()
+    url = (
+        "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/"
+        f"securities/{normalized}/candles.json?iss.meta=off&iss.only=candles"
+        "&candles.columns=begin,high,low,close,volume&interval=10"
+        f"&from={date_from}"
+    )
+    return intraday_from_candles(normalized, _get_json(url, timeout_seconds))
 
 
 def fetch_blue_chip_companies(timeout_seconds: int = 20) -> list[Company]:

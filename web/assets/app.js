@@ -22,6 +22,12 @@ function fundamentalStatus(company) {
   return flag(null);
 }
 
+function technicalStatus(company) {
+  if (!company.intraday) return flag(company.d1_confirmed && company.h4_confirmed && company.volume_profile_confirmed);
+  const hint = company.intraday.h4_trend_confirmed ? 'H4: ориентир +' : 'H4: ориентир −';
+  return `<span class="mini-status ${company.intraday.h4_trend_confirmed ? 'yes' : 'no'}">${hint}</span>`;
+}
+
 function verdictStatus(item) {
   const status = state.verdicts[item.ticker]?.status;
   if (status === 'consider') return '<span class="mini-status yes">можно рассматривать</span>';
@@ -62,7 +68,7 @@ function renderCompanies() {
     <td>${company.category ?? '—'}</td>
     <td>${fundamentalStatus(company)}</td>
     <td>${shortDebtStatus(company.short_debt)}</td>
-    <td>${flag(company.d1_confirmed && company.h4_confirmed && company.volume_profile_confirmed)}</td>
+    <td>${technicalStatus(company)}</td>
     <td>${verdictStatus(company)}<button class="table-action" data-ticker="${company.ticker}">Проверить</button></td>
   </tr>`).join('');
 }
@@ -101,6 +107,21 @@ function technicalFacts(technical) {
       <div class="metric"><b>${technical.latest_volume.toLocaleString('ru-RU')}</b><span>объём дня</span></div>
     </div>
     <p class="form-note">Тренд D1: ${technical.price_above_sma50 ? 'цена выше SMA 50' : 'цена не выше SMA 50'}; ${technical.rising_high ? 'максимум последних 20 дней выше предыдущих 20' : 'максимум не растёт'}. H4 и Volume Profile не подменяются этим расчётом.</p>
+  </div>`;
+}
+
+function intradayFacts(intraday) {
+  if (!intraday) return '';
+  const zones = (intraday.volume_zones || []).map((zone) => zone.toLocaleString('ru-RU')).join(' · ');
+  return `<div class="technical-facts">
+    <p><b>H4 и объёмный контекст · ориентир</b></p>
+    <div class="metrics">
+      <div class="metric"><b>${intraday.latest_close.toLocaleString('ru-RU')}</b><span>последнее закрытие H4</span></div>
+      <div class="metric"><b>${intraday.sma5_h4.toLocaleString('ru-RU')}</b><span>SMA 5 H4</span></div>
+      <div class="metric"><b>${intraday.h4_trend_confirmed ? 'да' : 'нет'}</b><span>краткий H4-тренд</span></div>
+      <div class="metric"><b>${zones || '—'}</b><span>две объёмные зоны</span></div>
+    </div>
+    <p class="form-note">${intraday.source}. Это ориентир для открытия графика, а не автоматическое подтверждение зоны входа или Volume Profile.</p>
   </div>`;
 }
 
@@ -184,6 +205,7 @@ function renderResult(data) {
     <div class="metrics"><div class="metric"><b>${data.category ?? '—'}</b><span>категория</span></div><div class="metric"><b>${range}</b><span>диапазон веса</span></div><div class="metric"><b>${data.projected_sector_pct ?? '—'}%</b><span>сектор после добавления</span></div></div>
     ${recommendationBlock(data.recommendation)}
     ${technicalFacts(data.technical)}
+    ${intradayFacts(data.intraday)}
     ${fundamentalFacts(data.fundamentals)}
     ${classificationBlock(data.classification)}
     ${manualDebtBlock(data.classification)}
