@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from html.parser import HTMLParser
 from io import BytesIO
 import json
@@ -17,6 +17,7 @@ DEBT_PATTERNS = (
     r"краткосрочн\w* кредиты и займы",
     r"краткосрочн\w* займы",
     r"текущ\w* часть долгосрочн\w* кредит\w* и займ\w*",
+    r"current loans and borrowings",
 )
 NUMBER = r"(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[,.]\d+)?"
 SOURCES_PATH = Path(__file__).resolve().parent.parent / "data" / "official_report_sources.json"
@@ -78,6 +79,13 @@ def _pdf_text(pdf: bytes) -> str:
     return " ".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
 
 
+def _report_text(document: bytes) -> str:
+    """Read an issuer PDF or its official HTML annual-report page."""
+    if document.lstrip().lower().startswith((b"<!doctype html", b"<html")):
+        return re.sub(r"<[^>]+>", " ", document.decode("utf-8", errors="ignore"))
+    return _pdf_text(document)
+
+
 @dataclass(frozen=True)
 class OfficialDebtEvidence:
     amount: float | None
@@ -85,13 +93,36 @@ class OfficialDebtEvidence:
     source_url: str
     status: str
     note: str
+    ratios: list[float] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
 
 def _number(value: str) -> float:
-    return float(value.replace("\u00a0", " ").replace(" ", "").replace(",", "."))
+    normalized = value.replace("\u00a0", " ").replace(" ", "")
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+", normalized):
+        return float(normalized.replace(",", ""))
+    return float(normalized.replace(",", "."))
+
+
+def _nornickel_current_debt_ebitda(text: str) -> list[float] | None:
+    """Return 2024, 2025 current-debt/EBITDA from one official table.
+
+    The report presents debt as 2025 then 2024, while EBITDA is 2024 then
+    2025. It is deliberately a source-specific parser, not a guess for other
+    issuers or differently structured reports.
+    """
+    normalized = " ".join(text.split())
+    debt = re.search(r"Current loans and borrowings\s+(%s)\s+(%s)" % (NUMBER, NUMBER), normalized, re.IGNORECASE)
+    ebitda = re.search(r"EBITDA,?\s+USD million.*?EBITDA\s+(%s)\s+(%s)" % (NUMBER, NUMBER), normalized, re.IGNORECASE)
+    if not debt or not ebitda:
+        return None
+    debt_2025, debt_2024 = (_number(value) for value in debt.groups())
+    ebitda_2024, ebitda_2025 = (_number(value) for value in ebitda.groups())
+    if not ebitda_2024 or not ebitda_2025:
+        return None
+    return [round(debt_2024 / ebitda_2024, 4), round(debt_2025 / ebitda_2025, 4)]
 
 
 def official_report_source(ticker: str) -> dict[str, str] | None:
@@ -123,9 +154,14 @@ def short_debt_from_official_source(ticker: str, year: int = 2025, timeout_secon
     if not report_url:
         return OfficialDebtEvidence(None, None, page_url, "needs_review", f"На странице эмитента не найдена PDF-ссылка за {year} год.")
     try:
-        evidence = short_debt_from_text(_pdf_text(_download(report_url, timeout_seconds)), report_url)
+        report_text = _report_text(_download(report_url, timeout_seconds))
+        evidence = short_debt_from_text(report_text, report_url)
     except Exception:  # PDF may be a scan or protected by the issuer.
         return OfficialDebtEvidence(None, None, report_url, "needs_review", "PDF недоступен для автоматического чтения или является сканом. Значение нужно проверить в документе вручную.")
+    if source.get("ratio_parser") == "nornickel_current_debt_ebitda":
+        ratios = _nornickel_current_debt_ebitda(report_text)
+        if ratios:
+            return replace(evidence, ratios=ratios, note="В официальной таблице совпали единицы и периоды; рассчитан ряд краткосрочный долг/EBITDA за 2024–2025.")
     return evidence
 
 

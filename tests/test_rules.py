@@ -11,7 +11,7 @@ from stock_analyzer.classification import classify_bank, classify_nonbank
 from stock_analyzer.smartlab import annual_series_from_html
 from unittest.mock import patch
 
-from stock_analyzer.official_reports import OfficialDebtEvidence, _pdf_link_from_page, official_report_source, short_debt_from_text
+from stock_analyzer.official_reports import OfficialDebtEvidence, _nornickel_current_debt_ebitda, _pdf_link_from_page, official_report_source, short_debt_from_text
 from stock_analyzer.service import AnalyzerService, _manual_short_debt_ebitda
 
 
@@ -136,6 +136,15 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(evidence.amount, 1250.5)
         self.assertEqual(evidence.status, "found")
 
+    def test_official_report_extractor_reads_issuer_html_debt_label(self):
+        evidence = short_debt_from_text("Current loans and borrowings 3,109 2,834", "https://issuer.example/report")
+        self.assertEqual(evidence.amount, 3109)
+        self.assertEqual(evidence.status, "found")
+
+    def test_nornickel_current_debt_ratio_requires_one_matched_table(self):
+        text = "EBITDA, USD million Indicators 2024 2025 EBITDA 5,196 5,668 Current loans and borrowings 3,109 2,834"
+        self.assertEqual(_nornickel_current_debt_ebitda(text), [0.5454, 0.5485])
+
     def test_uses_issuer_disclosure_page_not_aggregator(self):
         source = official_report_source("PLZL")
         self.assertIsNotNone(source)
@@ -185,7 +194,9 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(service.latest_blue_chip_scan()["items"][0]["ticker"], "TEST")
 
     def test_automatic_check_keeps_subjective_steps_manual(self):
-        service = AnalyzerService()
+        temp = TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        service = AnalyzerService(state_path=Path(temp.name) / "last_auto_check.json")
         scan = {"items": [
             {"ticker": "GOOD", "status": "review"},
             {"ticker": "BAD", "status": "exclude_now"},
@@ -200,12 +211,15 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(result["summary"]["d1_blocker"], 1)
         self.assertEqual(result["summary"]["official_debt_found"], 1)
         self.assertEqual(result["summary"]["h4_hints_available"], 0)
+        self.assertEqual([item["ticker"] for item in result["candidates"]], ["GOOD"])
         self.assertTrue(result["completed_at"].endswith("+00:00"))
         self.assertEqual(service.latest_automatic_check()["completed_at"], result["completed_at"])
         self.assertIn("H4: зона входа", result["summary"]["manual_steps"])
 
     def test_automatic_check_keeps_scan_when_official_debt_source_fails(self):
-        service = AnalyzerService()
+        temp = TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        service = AnalyzerService(state_path=Path(temp.name) / "last_auto_check.json")
         scan = {"items": [{"ticker": "TEST", "status": "review", "h4_trend_hint": True}]}
         with patch.object(service, "scan_blue_chips", return_value=scan), \
              patch.object(service, "collect_official_short_debt", side_effect=RuntimeError("temporary parser failure")):

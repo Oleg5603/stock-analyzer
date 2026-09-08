@@ -164,6 +164,18 @@ class AnalyzerService:
         status_counts = {status: sum(item["status"] == status for item in scan["items"])
                          for status in ("review", "watch", "exclude_now", "unavailable")}
         h4_hints_available = sum(item.get("h4_trend_hint") is not None for item in scan["items"])
+        candidates = [
+            {
+                "ticker": item["ticker"],
+                "name": item.get("name", item["ticker"]),
+                "sector": item.get("sector", "Не указан"),
+                "d1_confirmed": item.get("d1_confirmed"),
+                "h4_trend_hint": item.get("h4_trend_hint"),
+                "pending": item.get("reasons", []),
+            }
+            for item in scan["items"]
+            if item["status"] == "review"
+        ]
         response = {
             "scan": scan,
             "debt": debt,
@@ -182,12 +194,14 @@ class AnalyzerService:
                     "сопоставление краткосрочного долга с EBITDA за тот же период",
                 ],
             },
+            "candidates": candidates,
             "note": "Автоматически проверены только публичные и однозначно вычислимые данные. Результат не является торговой рекомендацией.",
         }
         with self._lock:
             self._last_auto_check = {
                 "completed_at": response["completed_at"],
                 "summary": dict(response["summary"]),
+                "candidates": list(response["candidates"]),
                 "note": response["note"],
             }
         self._save_last_auto_check()
@@ -214,6 +228,11 @@ class AnalyzerService:
                 except (URLError, TimeoutError, OSError, ValueError):
                     intraday = None
                 annual_series, source_url = fetch_annual_series(company.ticker)
+                official = short_debt_from_official_source(company.ticker, timeout_seconds=8)
+                if official.ratios:
+                    annual_series = dict(annual_series) | {"short_debt_ebitda": official.ratios}
+                    with self._lock:
+                        self._short_debt[company.ticker] = official.to_dict() | {"ticker": company.ticker}
                 classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, None)
                 fundamental = classification.bank_metrics_passed if company.is_bank else classification.fundamental_passed
                 required_keys = ("core_capital", "provisions", "loan_book", "deposits", "operating_income") if company.is_bank else ("revenue", "debt_ebitda", "equity", "operating_profit", "fcf", "short_debt_ebitda")
@@ -271,11 +290,16 @@ class AnalyzerService:
         intraday = fetch_intraday_technical(company.ticker)
         fundamentals = fetch_public_fundamentals(company.ticker)
         annual_series, annual_source_url = fetch_annual_series(company.ticker)
+        official = short_debt_from_official_source(company.ticker, timeout_seconds=8)
+        if official.ratios:
+            annual_series = dict(annual_series) | {"short_debt_ebitda": official.ratios}
         manual_short_debt = _manual_short_debt_ebitda(payload.get("short_debt_ebitda"))
         if manual_short_debt is not None:
             annual_series = dict(annual_series) | {"short_debt_ebitda": manual_short_debt}
         target = payload.get("target_price")
         potential = round((float(target) / technical.close - 1) * 100, 2) if target else None
+        target_source = str(payload.get("target_source", "")).strip()
+        target_as_of = str(payload.get("target_as_of", "")).strip()
         classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, potential)
         company = replace(company, category=classification.category, fundamental_passed=classification.fundamental_passed, bank_metrics_passed=classification.bank_metrics_passed, d1_confirmed=technical.trend_confirmed, h4_confirmed=payload.get("h4_confirmed", company.h4_confirmed), volume_profile_confirmed=payload.get("volume_profile_confirmed", company.volume_profile_confirmed))
         portfolio = [PortfolioPosition.from_mapping(row) for row in payload.get("portfolio", [])]
@@ -290,11 +314,17 @@ class AnalyzerService:
             "annual_series": annual_series,
             "official_report_source": official_report_source(company.ticker),
             "manual_short_debt_ebitda": manual_short_debt,
+            "official_short_debt_ebitda": official.ratios,
+            "target_evidence": {
+                "price": float(target) if target else None,
+                "source": target_source or None,
+                "as_of": target_as_of or None,
+            },
         }
         if not technical.trend_confirmed:
             recommendation = ("exclude_now", "Не рассматривать сейчас", "Дневной тренд не подтверждён.")
-        elif any(value is None for value in (company.category, company.h4_confirmed, company.volume_profile_confirmed, target)):
-            recommendation = ("watch", "Наблюдать", "Нужно подтвердить категорию, H4, Volume Profile и целевую цену.")
+        elif any(value is None for value in (company.category, company.h4_confirmed, company.volume_profile_confirmed, target)) or not target_source or not target_as_of:
+            recommendation = ("watch", "Наблюдать", "Нужно подтвердить категорию, H4, Volume Profile, целевую цену и её источник.")
         elif result.decision == "candidate" and (potential is None or potential >= 10):
             recommendation = ("consider", "Можно рассматривать", "Все заданные фильтры пройдены; проверьте план входа.")
         else:

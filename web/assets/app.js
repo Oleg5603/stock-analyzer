@@ -141,6 +141,13 @@ function recommendationBlock(item) {
   return `<div class="recommendation ${item.status}"><p class="eyebrow">ИТОГ СКАНЕРА</p><h4>${item.title}</h4><p>${item.message}</p><b>Потенциал по цели: ${potential}</b></div>`;
 }
 
+function targetEvidenceBlock(item) {
+  const target = item?.target_evidence;
+  if (!target?.price) return '<p class="form-note">Целевая цена не задана: потенциал не рассчитывается.</p>';
+  if (!target.source || !target.as_of) return '<p class="form-note"><b>Нужна проверка цели:</b> добавьте источник и дату оценки.</p>';
+  return `<p class="form-note"><b>Целевая цена:</b> ${target.price.toLocaleString('ru-RU')} · ${target.as_of} · источник: ${target.source}</p>`;
+}
+
 function batchScanBlock(data) {
   const rows = data.items.map((item) => {
     const foundation = item.fundamental_passed ? 'пройден' : item.base_series_ready ? 'базовые данные есть' : 'проверить';
@@ -165,6 +172,13 @@ function debtBatchBlock(data) {
 function automaticCheckBlock(data) {
   const summary = data.summary;
   const steps = summary.manual_steps.map((step) => `<li>${step}</li>`).join('');
+  const candidates = data.candidates || (data.scan?.items || []).filter((item) => item.status === 'review');
+  const candidateRows = candidates.map((item) => {
+    const h4 = item.h4_trend_hint ? 'есть' : 'ещё нет';
+    const pending = ((item.pending || item.reasons || []).join('; ') || 'уточнить H4, объём и цель')
+      .replaceAll('short_debt_ebitda', 'краткосрочный долг/EBITDA за два года');
+    return `<li><b>${item.ticker}</b> · ${item.sector || 'сектор не указан'}<br>D1: пройден; H4: ${h4}. Осталось: ${pending}<br><button class="secondary-action" data-ticker="${item.ticker}">Открыть проверку</button></li>`;
+  }).join('');
   $('#result').className = 'verdict manual_review';
   $('#result').innerHTML = `<h3>Автопроверка завершена</h3>
     <p>${data.note}</p>
@@ -175,6 +189,8 @@ function automaticCheckBlock(data) {
       <div class="metric"><b>${summary.official_debt_found}</b><span>долг найден в отчётах</span></div>
       <div class="metric"><b>${summary.h4_hints_available ?? 0}</b><span>есть H4-ориентир</span></div>
     </div>
+    <p><b>Можно рассматривать после проверки:</b></p>
+    <ul class="classification-reasons">${candidateRows || '<li>Сейчас нет бумаг без блокера D1.</li>'}</ul>
     <p><b>Осталось вручную:</b></p><ul class="classification-reasons">${steps}</ul>
     <p class="form-note">Проверено: ${data.completed_at ? new Date(data.completed_at).toLocaleString('ru-RU') : 'в этом сеансе'}. В таблице первыми показаны акции без блокера D1. Откройте «Проверить» у нужной акции, чтобы увидеть её цепочку фактов.</p>`;
 }
@@ -193,6 +209,12 @@ function manualDebtBlock(item) {
   return `<p class="form-note"><b>Вручную подтверждено:</b> краткосрочный долг/EBITDA ${values.join(' → ')}. Значения использованы только для текущего расчёта.</p>`;
 }
 
+function officialDebtRatioBlock(item) {
+  const values = item?.official_short_debt_ebitda;
+  if (!values) return '';
+  return `<p class="form-note"><b>Подтверждено источником:</b> краткосрочный долг/EBITDA ${values.join(' → ')} за 2024–2025. Ряд взят только из одного отчёта с одинаковыми единицами измерения.</p>`;
+}
+
 function officialDebtBlock(ticker, source) {
   if (!source) return '<div class="technical-facts"><p><b>Краткосрочный долг · официальный отчёт</b></p><p class="form-note">Для этого тикера ещё не добавлена подтверждённая страница эмитента.</p></div>';
   return `<div class="technical-facts"><p><b>Краткосрочный долг · официальный отчёт</b></p><p class="form-note">${source.issuer}: <a href="${source.page_url}" target="_blank" rel="noreferrer">страница раскрытия</a>. Автосбор не меняет категорию, пока единицы и отношение к EBITDA не подтверждены.</p><button class="secondary-action" data-official-debt="${ticker}">Загрузить из отчёта</button><p id="official-debt-result" class="form-note"></p></div>`;
@@ -205,11 +227,13 @@ function renderResult(data) {
     <p>${data.ticker} · достоверность: ${data.confidence === 'high' ? 'высокая' : data.confidence === 'medium' ? 'средняя' : 'требуется уточнение'}</p>
     <div class="metrics"><div class="metric"><b>${data.category ?? '—'}</b><span>категория</span></div><div class="metric"><b>${range}</b><span>диапазон веса</span></div><div class="metric"><b>${data.projected_sector_pct ?? '—'}%</b><span>сектор после добавления</span></div></div>
     ${recommendationBlock(data.recommendation)}
+    ${targetEvidenceBlock(data.classification)}
     ${technicalFacts(data.technical)}
     ${intradayFacts(data.intraday)}
     ${fundamentalFacts(data.fundamentals)}
     ${classificationBlock(data.classification)}
     ${manualDebtBlock(data.classification)}
+    ${officialDebtRatioBlock(data.classification)}
     ${officialDebtBlock(data.ticker, data.classification?.official_report_source)}
     <ul class="rules">${data.outcomes.map((rule) => `<li><span class="rule-status ${rule.status}">${rule.rule_id}<br>${humanStatus(rule.status)}</span><span>${rule.message}</span></li>`).join('')}</ul>`;
 }
@@ -225,6 +249,10 @@ async function analyze(event) {
   if (proposed !== undefined) payload.proposed_position_pct = proposed;
   const target = $('#target-price').value === '' ? undefined : Number($('#target-price').value);
   if (target !== undefined) payload.target_price = target;
+  const targetSource = $('#target-source').value.trim();
+  const targetAsOf = $('#target-as-of').value;
+  if (targetSource) payload.target_source = targetSource;
+  if (targetAsOf) payload.target_as_of = targetAsOf;
   const shortDebt = $('#short-debt-ebitda').value.trim();
   if (shortDebt) payload.short_debt_ebitda = shortDebt;
   if ($('#h4-confirmed').checked) payload.h4_confirmed = true;
@@ -318,6 +346,12 @@ $('#companies').addEventListener('click', (event) => {
   $('#analysis-form').requestSubmit();
 });
 $('#result').addEventListener('click', async (event) => {
+  const candidate = event.target.closest('[data-ticker]');
+  if (candidate) {
+    $('#ticker').value = candidate.dataset.ticker;
+    $('#analysis').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
   const button = event.target.closest('[data-official-debt]'); if (!button) return;
   button.disabled = true; button.textContent = 'Читаю PDF…';
   const output = $('#official-debt-result'); output.textContent = 'Получаю PDF только с сайта эмитента…';
@@ -340,6 +374,11 @@ async function initialize() {
     await loadCompanies();
     const scanResponse = await fetch('/api/scan/moex-blue-chips');
     if (scanResponse.ok) restoreBatchScan(await scanResponse.json());
+    const healthResponse = await fetch('/api/health');
+    if (healthResponse.ok) {
+      const health = await healthResponse.json();
+      if (health.last_auto_check) automaticCheckBlock(health.last_auto_check);
+    }
     if (!state.companies.length) {
       announce('Автозагрузка: получаю 15 голубых фишек и цены из публичного MOEX ISS…');
       const response = await fetch('/api/import/moex-blue-chips', { method: 'POST' });

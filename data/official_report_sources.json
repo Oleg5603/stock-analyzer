@@ -27,8 +27,11 @@
   },
   "GMKN": {
     "issuer": "ПАО «ГМК «Норильский никель»",
-    "page_url": "https://ar2025.nornickel.ru/",
-    "report_type": "Годовой отчет с финансовой отчетностью",
+    "page_url": "https://nornickel.com/investors/disclosure/financials/",
+    "report_url": "https://ar2025.nornickel.com/business-overview/financial-overview/",
+    "report_year": "2025",
+    "ratio_parser": "nornickel_current_debt_ebitda",
+    "report_type": "Официальный обзор МСФО и долговой позиции",
     "status": "page_verified"
   },
   "PLZL": {
