@@ -1,4 +1,6 @@
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
 from stock_analyzer.csvio import import_companies_csv
 from stock_analyzer.models import Company, PortfolioPosition
@@ -211,6 +213,17 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(result["summary"]["checked"], 1)
         self.assertEqual(result["summary"]["official_debt_found"], 0)
         self.assertIn("временно недоступен", result["debt"]["note"])
+
+    def test_last_auto_check_survives_service_restart(self):
+        with TemporaryDirectory() as directory:
+            state_path = Path(directory) / "last_auto_check.json"
+            service = AnalyzerService(state_path=state_path)
+            scan = {"items": [{"ticker": "TEST", "status": "review", "h4_trend_hint": True}]}
+            with patch.object(service, "scan_blue_chips", return_value=scan), \
+                 patch.object(service, "collect_official_short_debt", return_value={"found": 0}):
+                result = service.automatic_blue_chip_check()
+            restarted = AnalyzerService(state_path=state_path)
+            self.assertEqual(restarted.latest_automatic_check()["completed_at"], result["completed_at"])
 
 
 if __name__ == "__main__":

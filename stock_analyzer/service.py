@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
+import json
+from pathlib import Path
 from threading import RLock
 from typing import Any
 from urllib.error import URLError
@@ -13,6 +15,9 @@ from .moex import fetch_blue_chip_companies, fetch_daily_technical, fetch_intrad
 from .official_reports import official_report_source, short_debt_from_official_source
 from .rules import analyze_company
 from .smartlab import fetch_annual_series, fetch_public_fundamentals
+
+
+LAST_AUTO_CHECK_PATH = Path(__file__).resolve().parent.parent / "data" / "runtime" / "last_auto_check.json"
 
 
 def _manual_short_debt_ebitda(value: Any) -> list[float] | None:
@@ -34,14 +39,29 @@ def _manual_short_debt_ebitda(value: Any) -> list[float] | None:
 class AnalyzerService:
     """Thread-safe in-memory orchestrator; it never sends broker transactions."""
 
-    def __init__(self) -> None:
+    def __init__(self, state_path: Path | None = None) -> None:
         self._companies: dict[str, Company] = {}
         self._short_debt: dict[str, dict[str, Any]] = {}
         self._annual_coverage: dict[str, dict[str, Any]] = {}
         self._intraday: dict[str, dict[str, Any]] = {}
         self._blue_chip_scan: dict[str, Any] = {"items": []}
-        self._last_auto_check: dict[str, Any] | None = None
+        self._state_path = state_path or LAST_AUTO_CHECK_PATH
+        self._last_auto_check = self._load_last_auto_check()
         self._lock = RLock()
+
+    def _load_last_auto_check(self) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(self._state_path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else None
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _save_last_auto_check(self) -> None:
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            self._state_path.write_text(json.dumps(self._last_auto_check, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            return
 
     def companies(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -170,6 +190,7 @@ class AnalyzerService:
                 "summary": dict(response["summary"]),
                 "note": response["note"],
             }
+        self._save_last_auto_check()
         return response
 
     def scan_blue_chips(self) -> dict[str, Any]:
