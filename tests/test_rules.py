@@ -197,7 +197,20 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(result["summary"]["d1_and_base_data"], 1)
         self.assertEqual(result["summary"]["d1_blocker"], 1)
         self.assertEqual(result["summary"]["official_debt_found"], 1)
+        self.assertEqual(result["summary"]["h4_hints_available"], 0)
+        self.assertTrue(result["completed_at"].endswith("+00:00"))
+        self.assertEqual(service.latest_automatic_check()["completed_at"], result["completed_at"])
         self.assertIn("H4: зона входа", result["summary"]["manual_steps"])
+
+    def test_automatic_check_keeps_scan_when_official_debt_source_fails(self):
+        service = AnalyzerService()
+        scan = {"items": [{"ticker": "TEST", "status": "review", "h4_trend_hint": True}]}
+        with patch.object(service, "scan_blue_chips", return_value=scan), \
+             patch.object(service, "collect_official_short_debt", side_effect=RuntimeError("temporary parser failure")):
+            result = service.automatic_blue_chip_check()
+        self.assertEqual(result["summary"]["checked"], 1)
+        self.assertEqual(result["summary"]["official_debt_found"], 0)
+        self.assertIn("временно недоступен", result["debt"]["note"])
 
 
 if __name__ == "__main__":

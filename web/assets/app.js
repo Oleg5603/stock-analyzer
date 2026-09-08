@@ -173,9 +173,10 @@ function automaticCheckBlock(data) {
       <div class="metric"><b>${summary.d1_and_base_data}</b><span>D1 и базовые данные</span></div>
       <div class="metric"><b>${summary.d1_blocker}</b><span>блокер D1</span></div>
       <div class="metric"><b>${summary.official_debt_found}</b><span>долг найден в отчётах</span></div>
+      <div class="metric"><b>${summary.h4_hints_available ?? 0}</b><span>есть H4-ориентир</span></div>
     </div>
     <p><b>Осталось вручную:</b></p><ul class="classification-reasons">${steps}</ul>
-    <p class="form-note">В таблице первыми показаны акции без блокера D1. Откройте «Проверить» у нужной акции, чтобы увидеть её цепочку фактов.</p>`;
+    <p class="form-note">Проверено: ${data.completed_at ? new Date(data.completed_at).toLocaleString('ru-RU') : 'в этом сеансе'}. В таблице первыми показаны акции без блокера D1. Откройте «Проверить» у нужной акции, чтобы увидеть её цепочку фактов.</p>`;
 }
 
 function classificationBlock(item) {

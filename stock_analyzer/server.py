@@ -53,7 +53,8 @@ class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path == "/api/health":
-            self._send(200, {"status": "ok", "version": "0.1.0", "trading": False})
+            self._send(200, {"status": "ok", "version": "0.1.0", "trading": False,
+                             "last_auto_check": self.service.latest_automatic_check()})
         elif path == "/api/scan/moex-blue-chips":
             self._send(200, self.service.latest_blue_chip_scan())
         elif path == "/api/companies":

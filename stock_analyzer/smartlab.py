@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from html.parser import HTMLParser
+from time import sleep
 from urllib.request import Request, urlopen
 
 
@@ -17,6 +18,20 @@ SMARTLAB_METRICS = (
     "Стоимость риска (CoR)",
     "Просроченные кредиты, NPL",
 )
+
+
+def _download_html(source_url: str, timeout_seconds: int) -> str:
+    """Retry one transient public-source connection failure without inventing data."""
+    request = Request(source_url, headers={"Accept": "text/html", "User-Agent": "StockAnalyzer/0.2"})
+    for attempt in range(2):
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310: fixed public HTTPS source
+                return response.read().decode("utf-8", errors="replace")
+        except OSError:
+            if attempt:
+                raise
+            sleep(0.4)
+    raise RuntimeError("Недостижимый код")
 
 ANNUAL_METRICS: dict[str, tuple[str, ...]] = {
     "revenue": ("Выручка",),
@@ -154,9 +169,7 @@ def fetch_public_fundamentals(ticker: str, timeout_seconds: int = 20) -> Fundame
     if not normalized.isalnum():
         raise ValueError("Тикер может содержать только буквы и цифры")
     source_url = f"https://smart-lab.ru/q/{normalized}/f/q/MSFO/"
-    request = Request(source_url, headers={"Accept": "text/html", "User-Agent": "StockAnalyzer/0.2"})
-    with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310: fixed public HTTPS source
-        html = response.read().decode("utf-8", errors="replace")
+    html = _download_html(source_url, timeout_seconds)
     return fundamental_from_html(normalized, html)
 
 
@@ -165,7 +178,5 @@ def fetch_annual_series(ticker: str, timeout_seconds: int = 20) -> tuple[dict[st
     if not normalized.isalnum():
         raise ValueError("Тикер может содержать только буквы и цифры")
     source_url = f"https://smart-lab.ru/q/{normalized}/f/y/MSFO/"
-    request = Request(source_url, headers={"Accept": "text/html", "User-Agent": "StockAnalyzer/0.2"})
-    with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310: fixed public HTTPS source
-        html = response.read().decode("utf-8", errors="replace")
+    html = _download_html(source_url, timeout_seconds)
     return annual_series_from_html(html), source_url

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from datetime import UTC, datetime
 from threading import RLock
 from typing import Any
 from urllib.error import URLError
@@ -39,6 +40,7 @@ class AnalyzerService:
         self._annual_coverage: dict[str, dict[str, Any]] = {}
         self._intraday: dict[str, dict[str, Any]] = {}
         self._blue_chip_scan: dict[str, Any] = {"items": []}
+        self._last_auto_check: dict[str, Any] | None = None
         self._lock = RLock()
 
     def companies(self) -> list[dict[str, Any]]:
@@ -76,6 +78,11 @@ class AnalyzerService:
         with self._lock:
             return dict(self._blue_chip_scan) | {"items": list(self._blue_chip_scan["items"])}
 
+    def latest_automatic_check(self) -> dict[str, Any] | None:
+        """Small safe status payload for local monitoring tools such as Gavrik."""
+        with self._lock:
+            return dict(self._last_auto_check) if self._last_auto_check else None
+
     def official_short_debt(self, ticker: str, year: int = 2025) -> dict[str, Any]:
         evidence = short_debt_from_official_source(ticker, year)
         return evidence.to_dict() | {"ticker": ticker.upper(), "year": year}
@@ -93,8 +100,15 @@ class AnalyzerService:
             source = official_report_source(ticker)
             if not source:
                 continue
-            evidence = short_debt_from_official_source(ticker, year, timeout_seconds=8)
-            item = evidence.to_dict() | {
+            try:
+                evidence = short_debt_from_official_source(ticker, year, timeout_seconds=8)
+                item = evidence.to_dict()
+            except (URLError, TimeoutError, OSError, ValueError, RuntimeError):
+                item = {
+                    "amount": None, "matched_label": None, "source_url": source["page_url"],
+                    "status": "unavailable", "note": "Официальный источник временно недоступен; повторите позже.",
+                }
+            item |= {
                 "ticker": ticker,
                 "issuer": source.get("issuer", ticker),
                 "page_url": source["page_url"],
@@ -119,18 +133,28 @@ class AnalyzerService:
         universal interpretation in the public sources used by the MVP.
         """
         scan = self.scan_blue_chips()
-        debt = self.collect_official_short_debt(year)
+        try:
+            debt = self.collect_official_short_debt(year)
+        except Exception:  # external issuer pages/PDF parsers must not cancel the scan
+            debt = {
+                "items": [], "year": year, "found": 0,
+                "source": "Официальные страницы раскрытия эмитентов",
+                "note": "Блок официального краткосрочного долга временно недоступен; D1 и H4 проверены отдельно.",
+            }
         status_counts = {status: sum(item["status"] == status for item in scan["items"])
                          for status in ("review", "watch", "exclude_now", "unavailable")}
-        return {
+        h4_hints_available = sum(item.get("h4_trend_hint") is not None for item in scan["items"])
+        response = {
             "scan": scan,
             "debt": debt,
+            "completed_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "summary": {
                 "checked": len(scan["items"]),
                 "d1_and_base_data": status_counts["review"],
                 "d1_blocker": status_counts["exclude_now"],
                 "needs_data": status_counts["watch"] + status_counts["unavailable"],
                 "official_debt_found": debt["found"],
+                "h4_hints_available": h4_hints_available,
                 "manual_steps": [
                     "H4: зона входа",
                     "Volume Profile: две объёмные зоны",
@@ -140,6 +164,13 @@ class AnalyzerService:
             },
             "note": "Автоматически проверены только публичные и однозначно вычислимые данные. Результат не является торговой рекомендацией.",
         }
+        with self._lock:
+            self._last_auto_check = {
+                "completed_at": response["completed_at"],
+                "summary": dict(response["summary"]),
+                "note": response["note"],
+            }
+        return response
 
     def scan_blue_chips(self) -> dict[str, Any]:
         """Run the automatable part of the checklist for the MOEX blue chips.
