@@ -185,9 +185,12 @@ function automaticCheckBlock(data) {
   const candidates = data.candidates || (data.scan?.items || []).filter((item) => item.status === 'review');
   const candidateRows = candidates.map((item) => {
     const h4 = item.h4_trend_hint ? 'есть' : 'ещё нет';
+    const price = item.last_price == null ? '—' : item.last_price.toLocaleString('ru-RU');
+    const target = item.technical_target == null ? '—' : item.technical_target.toLocaleString('ru-RU');
+    const potential = item.technical_potential_pct == null ? '—' : `${item.technical_potential_pct.toLocaleString('ru-RU')}%`;
     const pending = ((item.pending || item.reasons || []).join('; ') || 'уточнить H4, объём и цель')
       .replaceAll('short_debt_ebitda', 'краткосрочный долг/EBITDA за два года');
-    return `<li><b>${item.ticker}</b> · ${item.sector || 'сектор не указан'}<br>D1: пройден; H4: ${h4}. Осталось: ${pending}<br><button class="secondary-action" data-ticker="${item.ticker}">Открыть проверку</button></li>`;
+    return `<li><b>${item.ticker}</b> · ${item.sector || 'сектор не указан'}<br>Цена: ${price}; ориентир цели: ${target}; потенциал: ${potential}<br>D1: пройден; H4: ${h4}. Осталось: ${pending}<br><button class="secondary-action" data-ticker="${item.ticker}">Открыть проверку</button></li>`;
   }).join('');
   $('#result').className = 'verdict manual_review';
   $('#result').innerHTML = `<h3>Автопроверка завершена</h3>

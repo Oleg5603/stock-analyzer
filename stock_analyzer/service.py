@@ -169,6 +169,9 @@ class AnalyzerService:
                 "ticker": item["ticker"],
                 "name": item.get("name", item["ticker"]),
                 "sector": item.get("sector", "Не указан"),
+                "last_price": item.get("last_price"),
+                "technical_target": item.get("technical_target"),
+                "technical_potential_pct": item.get("technical_potential_pct"),
                 "d1_confirmed": item.get("d1_confirmed"),
                 "h4_trend_hint": item.get("h4_trend_hint"),
                 "pending": item.get("reasons", []),
@@ -260,6 +263,8 @@ class AnalyzerService:
                 items.append({
                     "ticker": company.ticker, "name": company.name, "sector": company.sector,
                     "last_price": company.last_price, "status": status, "title": title,
+                    "technical_target": technical.recent_high_20,
+                    "technical_potential_pct": round((technical.recent_high_20 / technical.close - 1) * 100, 2),
                     "d1_confirmed": technical.trend_confirmed, "fundamental_passed": fundamental,
                     "h4_trend_hint": intraday.h4_trend_confirmed if intraday else None,
                     "volume_zones": intraday.volume_zones if intraday else [],

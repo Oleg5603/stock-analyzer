@@ -184,6 +184,8 @@ class RulesTests(unittest.TestCase):
             service = AnalyzerService()
             result = service.scan_blue_chips()
         self.assertEqual(result["items"][0]["status"], "review")
+        self.assertEqual(result["items"][0]["technical_target"], 110)
+        self.assertEqual(result["items"][0]["technical_potential_pct"], 0.0)
         self.assertTrue(result["items"][0]["base_series_ready"])
         checked = service.companies()[0]
         self.assertEqual(checked["category"], result["items"][0]["category"])
