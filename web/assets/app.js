@@ -281,6 +281,31 @@ async function analyze(event) {
   renderResult(result);
 }
 
+$('#fill-technical-hints').addEventListener('click', async () => {
+  const ticker = $('#ticker').value.trim().toUpperCase();
+  if (!ticker) { announce('Сначала укажите тикер.'); return; }
+  const button = $('#fill-technical-hints');
+  button.disabled = true; button.textContent = 'Получаю MOEX…';
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker, portfolio: [] }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Не удалось получить ориентиры MOEX');
+    const intraday = result.intraday;
+    const [lower, upper] = [intraday.sma5_h4, intraday.latest_close].sort((a, b) => a - b);
+    $('#h4-entry-zone').value = `${lower.toFixed(2)}–${upper.toFixed(2)}`;
+    $('#volume-zone-one').value = intraday.volume_zones[0] == null ? '' : `центр ${intraday.volume_zones[0].toFixed(2)}`;
+    $('#volume-zone-two').value = intraday.volume_zones[1] == null ? '' : `центр ${intraday.volume_zones[1].toFixed(2)}`;
+    $('#target-price').value = result.technical.recent_high_20;
+    $('#target-source').value = 'MOEX ISS · технический ориентир: максимум 20 торговых дней';
+    $('#target-as-of').value = result.technical.candle_date;
+    $('#target-confirmed').checked = false;
+    announce('Ориентиры заполнены из свечей MOEX. Проверьте их на графике; подтверждение цели не ставится автоматически.');
+  } catch (error) { announce(error.message); }
+  finally { button.disabled = false; button.textContent = 'Подставить ориентиры MOEX'; }
+});
+
 $('#csv-file').addEventListener('change', async (event) => {
   const file = event.target.files[0]; if (!file) return;
   const response = await fetch('/api/import/companies.csv', { method: 'POST', body: await file.text() });
