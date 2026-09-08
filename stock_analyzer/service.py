@@ -13,18 +13,38 @@ from .rules import analyze_company
 from .smartlab import fetch_annual_series, fetch_public_fundamentals
 
 
+def _manual_short_debt_ebitda(value: Any) -> list[float] | None:
+    """Accept two manually verified annual ratios, separated by semicolons."""
+    if value is None or value == "":
+        return None
+    parts = value if isinstance(value, list) else str(value).split(";")
+    if len(parts) != 2:
+        raise ValueError("Укажите два значения краткосрочного долга/EBITDA через точку с запятой, например 0,8; 0,7")
+    try:
+        values = [float(str(item).strip().replace(",", ".")) for item in parts]
+    except ValueError as exc:
+        raise ValueError("Краткосрочный долг/EBITDA должен состоять из чисел") from exc
+    if any(item < 0 for item in values):
+        raise ValueError("Краткосрочный долг/EBITDA не может быть отрицательным")
+    return values
+
+
 class AnalyzerService:
     """Thread-safe in-memory orchestrator; it never sends broker transactions."""
 
     def __init__(self) -> None:
         self._companies: dict[str, Company] = {}
         self._short_debt: dict[str, dict[str, Any]] = {}
+        self._annual_coverage: dict[str, dict[str, Any]] = {}
         self._blue_chip_scan: dict[str, Any] = {"items": []}
         self._lock = RLock()
 
     def companies(self) -> list[dict[str, Any]]:
         with self._lock:
-            return [asdict(item) | {"short_debt": self._short_debt.get(item.ticker)} for item in sorted(self._companies.values(), key=lambda x: x.ticker)]
+            return [asdict(item) | {
+                "short_debt": self._short_debt.get(item.ticker),
+                "annual_coverage": self._annual_coverage.get(item.ticker),
+            } for item in sorted(self._companies.values(), key=lambda x: x.ticker)]
 
     def import_csv(self, text: str) -> dict[str, Any]:
         imported = import_companies_csv(text)
@@ -45,8 +65,8 @@ class AnalyzerService:
     def import_blue_chips(self) -> dict[str, Any]:
         imported = fetch_blue_chip_companies()
         with self._lock:
-            for company in imported:
-                self._companies[company.ticker] = company
+            self._companies = {company.ticker: company for company in imported}
+            self._short_debt = {ticker: item for ticker, item in self._short_debt.items() if ticker in self._companies}
         return {"accepted": len(imported), "total": len(self._companies), "source": "MOEX ISS / MOEXBC", "note": "Состав голубых фишек и цены загружены автоматически; методика требует ручной проверки."}
 
     def latest_blue_chip_scan(self) -> dict[str, Any]:
@@ -88,6 +108,36 @@ class AnalyzerService:
             "note": "Сумма не подставляется в категорию до проверки единиц измерения и EBITDA за тот же период.",
         }
 
+    def automatic_blue_chip_check(self, year: int = 2025) -> dict[str, Any]:
+        """Run every check that has a public, machine-readable source.
+
+        This deliberately stops before H4, Volume Profile, target price and
+        converting a debt amount to Debt/EBITDA.  Those inputs have no safe
+        universal interpretation in the public sources used by the MVP.
+        """
+        scan = self.scan_blue_chips()
+        debt = self.collect_official_short_debt(year)
+        status_counts = {status: sum(item["status"] == status for item in scan["items"])
+                         for status in ("review", "watch", "exclude_now", "unavailable")}
+        return {
+            "scan": scan,
+            "debt": debt,
+            "summary": {
+                "checked": len(scan["items"]),
+                "d1_and_base_data": status_counts["review"],
+                "d1_blocker": status_counts["exclude_now"],
+                "needs_data": status_counts["watch"] + status_counts["unavailable"],
+                "official_debt_found": debt["found"],
+                "manual_steps": [
+                    "H4: зона входа",
+                    "Volume Profile: две объёмные зоны",
+                    "целевая цена",
+                    "сопоставление краткосрочного долга с EBITDA за тот же период",
+                ],
+            },
+            "note": "Автоматически проверены только публичные и однозначно вычислимые данные. Результат не является торговой рекомендацией.",
+        }
+
     def scan_blue_chips(self) -> dict[str, Any]:
         """Run the automatable part of the checklist for the MOEX blue chips.
 
@@ -104,6 +154,9 @@ class AnalyzerService:
                 annual_series, source_url = fetch_annual_series(company.ticker)
                 classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, None)
                 fundamental = classification.bank_metrics_passed if company.is_bank else classification.fundamental_passed
+                required_keys = ("core_capital", "provisions", "loan_book", "deposits", "operating_income") if company.is_bank else ("revenue", "debt_ebitda", "equity", "operating_profit", "fcf", "short_debt_ebitda")
+                missing_keys = [key for key in required_keys if len(annual_series.get(key, [])) < 2]
+                coverage = {"available": len(required_keys) - len(missing_keys), "required": len(required_keys), "missing": missing_keys}
                 checked_company = replace(
                     company,
                     category=classification.category,
@@ -113,6 +166,7 @@ class AnalyzerService:
                 )
                 with self._lock:
                     self._companies[company.ticker] = checked_company
+                    self._annual_coverage[company.ticker] = coverage
                 base_series_ready = all(len(annual_series.get(key, [])) >= 2 for key in ("revenue", "debt_ebitda", "equity", "operating_profit", "fcf"))
                 if not technical.trend_confirmed:
                     status, title = "exclude_now", "Не рассматривать сейчас"
@@ -150,6 +204,9 @@ class AnalyzerService:
         technical = fetch_daily_technical(company.ticker)
         fundamentals = fetch_public_fundamentals(company.ticker)
         annual_series, annual_source_url = fetch_annual_series(company.ticker)
+        manual_short_debt = _manual_short_debt_ebitda(payload.get("short_debt_ebitda"))
+        if manual_short_debt is not None:
+            annual_series = dict(annual_series) | {"short_debt_ebitda": manual_short_debt}
         target = payload.get("target_price")
         potential = round((float(target) / technical.close - 1) * 100, 2) if target else None
         classification = classify_bank(annual_series) if company.is_bank else classify_nonbank(annual_series, potential)
@@ -164,6 +221,7 @@ class AnalyzerService:
             "annual_source_url": annual_source_url,
             "annual_series": annual_series,
             "official_report_source": official_report_source(company.ticker),
+            "manual_short_debt_ebitda": manual_short_debt,
         }
         if not technical.trend_confirmed:
             recommendation = ("exclude_now", "Не рассматривать сейчас", "Дневной тренд не подтверждён.")

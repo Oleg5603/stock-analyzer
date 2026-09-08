@@ -14,6 +14,14 @@ function shortDebtStatus(item) {
   return '<span class="mini-status unknown">проверить</span>';
 }
 
+function fundamentalStatus(company) {
+  const passed = company.is_bank ? company.bank_metrics_passed : company.fundamental_passed;
+  if (passed !== null && passed !== undefined) return flag(passed);
+  const coverage = company.annual_coverage;
+  if (coverage) return `<span class="mini-status unknown">МСФО ${coverage.available}/${coverage.required}</span>`;
+  return flag(null);
+}
+
 function verdictStatus(item) {
   const status = state.verdicts[item.ticker]?.status;
   if (status === 'consider') return '<span class="mini-status yes">можно рассматривать</span>';
@@ -41,12 +49,18 @@ function renderCompanies() {
     target.innerHTML = '<tr><td colspan="9" class="empty">По этому тикеру или названию ничего не найдено. Измените запрос или очистите поле поиска.</td></tr>';
     return;
   }
-  const rank = (company) => state.verdicts[company.ticker]?.status === 'consider' ? 0 : 1;
+  const rank = (company) => ({
+    consider: 0,
+    watch: 1,
+    undefined: 2,
+    exclude_now: 3,
+    unavailable: 4,
+  })[String(state.verdicts[company.ticker]?.status)] ?? 2;
   const ordered = [...found].sort((left, right) => rank(left) - rank(right) || left.ticker.localeCompare(right.ticker));
   target.innerHTML = ordered.map((company) => `<tr>
     <td>${company.ticker}</td><td>${company.name}</td><td>${company.last_price == null ? '—' : company.last_price.toLocaleString('ru-RU')}</td><td>${company.sector}</td>
     <td>${company.category ?? '—'}</td>
-    <td>${flag(company.is_bank ? company.bank_metrics_passed : company.fundamental_passed)}</td>
+    <td>${fundamentalStatus(company)}</td>
     <td>${shortDebtStatus(company.short_debt)}</td>
     <td>${flag(company.d1_confirmed && company.h4_confirmed && company.volume_profile_confirmed)}</td>
     <td>${verdictStatus(company)}<button class="table-action" data-ticker="${company.ticker}">Проверить</button></td>
@@ -127,12 +141,34 @@ function debtBatchBlock(data) {
   $('#result').innerHTML = `<h3>Краткосрочный долг: доказательства</h3><p>${data.source} · ${data.year}</p><p>${data.note}</p><ul class="rules">${rows || '<li>Для загруженных компаний пока нет подтверждённых страниц раскрытия.</li>'}</ul>`;
 }
 
+function automaticCheckBlock(data) {
+  const summary = data.summary;
+  const steps = summary.manual_steps.map((step) => `<li>${step}</li>`).join('');
+  $('#result').className = 'verdict manual_review';
+  $('#result').innerHTML = `<h3>Автопроверка завершена</h3>
+    <p>${data.note}</p>
+    <div class="metrics">
+      <div class="metric"><b>${summary.checked}</b><span>проверено акций</span></div>
+      <div class="metric"><b>${summary.d1_and_base_data}</b><span>D1 и базовые данные</span></div>
+      <div class="metric"><b>${summary.d1_blocker}</b><span>блокер D1</span></div>
+      <div class="metric"><b>${summary.official_debt_found}</b><span>долг найден в отчётах</span></div>
+    </div>
+    <p><b>Осталось вручную:</b></p><ul class="classification-reasons">${steps}</ul>
+    <p class="form-note">В таблице первыми показаны акции без блокера D1. Откройте «Проверить» у нужной акции, чтобы увидеть её цепочку фактов.</p>`;
+}
+
 function classificationBlock(item) {
   if (!item) return '';
   const category = item.category == null ? '—' : item.category;
   const rows = (item.reasons || []).map((reason) => `<li>${reason}</li>`).join('');
   const series = Object.entries(item.annual_series || {}).map(([key, values]) => `<div class="metric"><b>${values.join(' → ')}</b><span>${key}</span></div>`).join('');
   return `<div class="technical-facts"><p><b>Категория · годовые МСФО</b> · статус: ${item.status}</p><div class="metrics"><div class="metric"><b>${category}</b><span>расчётная категория</span></div>${series}</div><ul class="classification-reasons">${rows}</ul><p class="form-note"><a href="${item.annual_source_url}" target="_blank" rel="noreferrer">Открыть годовой источник</a>. Ряды без нужного показателя не дополняются предположениями.</p></div>`;
+}
+
+function manualDebtBlock(item) {
+  const values = item?.manual_short_debt_ebitda;
+  if (!values) return '';
+  return `<p class="form-note"><b>Вручную подтверждено:</b> краткосрочный долг/EBITDA ${values.join(' → ')}. Значения использованы только для текущего расчёта.</p>`;
 }
 
 function officialDebtBlock(ticker, source) {
@@ -150,6 +186,7 @@ function renderResult(data) {
     ${technicalFacts(data.technical)}
     ${fundamentalFacts(data.fundamentals)}
     ${classificationBlock(data.classification)}
+    ${manualDebtBlock(data.classification)}
     ${officialDebtBlock(data.ticker, data.classification?.official_report_source)}
     <ul class="rules">${data.outcomes.map((rule) => `<li><span class="rule-status ${rule.status}">${rule.rule_id}<br>${humanStatus(rule.status)}</span><span>${rule.message}</span></li>`).join('')}</ul>`;
 }
@@ -165,6 +202,8 @@ async function analyze(event) {
   if (proposed !== undefined) payload.proposed_position_pct = proposed;
   const target = $('#target-price').value === '' ? undefined : Number($('#target-price').value);
   if (target !== undefined) payload.target_price = target;
+  const shortDebt = $('#short-debt-ebitda').value.trim();
+  if (shortDebt) payload.short_debt_ebitda = shortDebt;
   if ($('#h4-confirmed').checked) payload.h4_confirmed = true;
   if ($('#volume-confirmed').checked) payload.volume_profile_confirmed = true;
   const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -222,6 +261,21 @@ $('#blue-chips-scan').addEventListener('click', async () => {
   finally { button.disabled = false; button.textContent = 'Проверить голубые фишки'; }
 });
 
+$('#automatic-check').addEventListener('click', async () => {
+  const button = $('#automatic-check');
+  button.disabled = true; button.textContent = 'Проверяю…';
+  announce('Автопроверка: 1/2 D1 и годовые МСФО; затем 2/2 официальные страницы долга. Это может занять до 3 минут…');
+  try {
+    const response = await fetch('/api/check/moex-blue-chips', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Не удалось выполнить автопроверку');
+    restoreBatchScan(result.scan); await loadCompanies(); automaticCheckBlock(result);
+    const summary = result.summary;
+    announce(`Готово: ${summary.checked} акций. D1 и базовые данные: ${summary.d1_and_base_data}; блокер D1: ${summary.d1_blocker}; строки долга найдены: ${summary.official_debt_found}.`);
+  } catch (error) { announce(error.message); }
+  finally { button.disabled = false; button.textContent = 'Автопроверка голубых фишек'; }
+});
+
 $('#short-debt-scan').addEventListener('click', async () => {
   const button = $('#short-debt-scan');
   button.disabled = true; button.textContent = 'Читаю отчёты…'; announce('Читаю только подтверждённые официальные страницы эмитентов. PDF может потребовать ручной проверки…');
@@ -236,7 +290,9 @@ $('#short-debt-scan').addEventListener('click', async () => {
 
 $('#companies').addEventListener('click', (event) => {
   const button = event.target.closest('[data-ticker]'); if (!button) return;
-  $('#ticker').value = button.dataset.ticker; $('#analysis').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#ticker').value = button.dataset.ticker;
+  $('#analysis').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#analysis-form').requestSubmit();
 });
 $('#result').addEventListener('click', async (event) => {
   const button = event.target.closest('[data-official-debt]'); if (!button) return;
@@ -262,11 +318,11 @@ async function initialize() {
     const scanResponse = await fetch('/api/scan/moex-blue-chips');
     if (scanResponse.ok) restoreBatchScan(await scanResponse.json());
     if (!state.companies.length) {
-      announce('Автозагрузка: получаю список TQBR и цены из публичного MOEX ISS…');
-      const response = await fetch('/api/import/moex', { method: 'POST' });
+      announce('Автозагрузка: получаю 15 голубых фишек и цены из публичного MOEX ISS…');
+      const response = await fetch('/api/import/moex-blue-chips', { method: 'POST' });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Не удалось получить данные MOEX');
-      announce(`MOEX ISS: загружено ${result.accepted}. Категории и признаки методики требуют ручной проверки.`);
+      announce(`MOEX ISS / MOEXBC: загружено ${result.accepted}. Полный список доступен по кнопке «Все TQBR».`);
       await loadCompanies();
     }
   } catch (error) { announce(error.message || 'Сервер недоступен. Запустите приложение командой из README.'); }

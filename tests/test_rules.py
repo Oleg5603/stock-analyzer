@@ -10,7 +10,7 @@ from stock_analyzer.smartlab import annual_series_from_html
 from unittest.mock import patch
 
 from stock_analyzer.official_reports import OfficialDebtEvidence, _pdf_link_from_page, official_report_source, short_debt_from_text
-from stock_analyzer.service import AnalyzerService
+from stock_analyzer.service import AnalyzerService, _manual_short_debt_ebitda
 
 
 class RulesTests(unittest.TestCase):
@@ -86,6 +86,15 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(BLUE_CHIP_SECTORS["SBER"], "Банки")
         self.assertEqual(BLUE_CHIP_SECTORS["LKOH"], "Нефть и газ")
 
+    def test_blue_chip_import_replaces_general_registry(self):
+        service = AnalyzerService()
+        service.import_csv("ticker,name,sector\nOTHER,Другая,Тест\n")
+        company = Company(ticker="TEST", name="Тест", sector="Нефть и газ")
+        with patch("stock_analyzer.service.fetch_blue_chip_companies", return_value=[company]):
+            result = service.import_blue_chips()
+        self.assertEqual(result["total"], 1)
+        self.assertEqual([item["ticker"] for item in service.companies()], ["TEST"])
+
     def test_annual_parser_excludes_ltm_column(self):
         html = """<table><tr><td>Компания</td><td>2023</td><td>2024</td><td>LTM</td></tr>
         <tr><td>Выручка</td><td>100</td><td>120</td><td>130</td></tr>
@@ -99,6 +108,11 @@ class RulesTests(unittest.TestCase):
         result = classify_nonbank(series, 35)
         self.assertEqual(result.category, 1)
         self.assertTrue(result.fundamental_passed)
+
+    def test_manual_short_debt_ratio_requires_two_verified_years(self):
+        self.assertEqual(_manual_short_debt_ebitda("0,8; 0,7"), [0.8, 0.7])
+        with self.assertRaises(ValueError):
+            _manual_short_debt_ebitda("0,8")
 
     def test_bank_capital_below_floor_blocks(self):
         series = {"core_capital": [9, 7.9], "provisions": [10, 9], "loan_book": [10, 11], "deposits": [10, 11], "operating_income": [10, 11]}
@@ -151,7 +165,25 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(checked["category"], result["items"][0]["category"])
         self.assertEqual(checked["fundamental_passed"], result["items"][0]["fundamental_passed"])
         self.assertTrue(checked["d1_confirmed"])
+        self.assertEqual(checked["annual_coverage"], {"available": 5, "required": 6, "missing": ["short_debt_ebitda"]})
         self.assertEqual(service.latest_blue_chip_scan()["items"][0]["ticker"], "TEST")
+
+    def test_automatic_check_keeps_subjective_steps_manual(self):
+        service = AnalyzerService()
+        scan = {"items": [
+            {"ticker": "GOOD", "status": "review"},
+            {"ticker": "BAD", "status": "exclude_now"},
+            {"ticker": "WAIT", "status": "watch"},
+        ]}
+        debt = {"found": 1}
+        with patch.object(service, "scan_blue_chips", return_value=scan), \
+             patch.object(service, "collect_official_short_debt", return_value=debt):
+            result = service.automatic_blue_chip_check()
+        self.assertEqual(result["summary"]["checked"], 3)
+        self.assertEqual(result["summary"]["d1_and_base_data"], 1)
+        self.assertEqual(result["summary"]["d1_blocker"], 1)
+        self.assertEqual(result["summary"]["official_debt_found"], 1)
+        self.assertIn("H4: зона входа", result["summary"]["manual_steps"])
 
 
 if __name__ == "__main__":
