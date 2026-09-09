@@ -18,6 +18,8 @@ from .smartlab import fetch_annual_series, fetch_public_fundamentals
 
 
 LAST_AUTO_CHECK_PATH = Path(__file__).resolve().parent.parent / "data" / "runtime" / "last_auto_check.json"
+REVIEW_STATE_PATH = LAST_AUTO_CHECK_PATH.with_name("manual_reviews.json")
+REVIEW_KEYS = ("target_price", "target_source", "target_as_of", "target_confirmed", "short_debt_ebitda", "h4_confirmed", "volume_profile_confirmed", "h4_entry_zone", "volume_zones_confirmed")
 
 
 def _manual_short_debt_ebitda(value: Any) -> list[float] | None:
@@ -39,22 +41,29 @@ def _manual_short_debt_ebitda(value: Any) -> list[float] | None:
 class AnalyzerService:
     """Thread-safe in-memory orchestrator; it never sends broker transactions."""
 
-    def __init__(self, state_path: Path | None = None) -> None:
+    def __init__(self, state_path: Path | None = None, review_path: Path | None = None) -> None:
         self._companies: dict[str, Company] = {}
         self._short_debt: dict[str, dict[str, Any]] = {}
         self._annual_coverage: dict[str, dict[str, Any]] = {}
         self._intraday: dict[str, dict[str, Any]] = {}
         self._blue_chip_scan: dict[str, Any] = {"items": []}
         self._state_path = state_path or LAST_AUTO_CHECK_PATH
+        self._review_path = review_path or REVIEW_STATE_PATH
         self._last_auto_check = self._load_last_auto_check()
+        self._reviews = self._load_json(self._review_path)
         self._lock = RLock()
 
     def _load_last_auto_check(self) -> dict[str, Any] | None:
+        payload = self._load_json(self._state_path)
+        return payload or None
+
+    @staticmethod
+    def _load_json(path: Path) -> dict[str, Any]:
         try:
-            payload = json.loads(self._state_path.read_text(encoding="utf-8"))
-            return payload if isinstance(payload, dict) else None
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
         except (OSError, json.JSONDecodeError):
-            return None
+            return {}
 
     def _save_last_auto_check(self) -> None:
         try:
@@ -62,6 +71,17 @@ class AnalyzerService:
             self._state_path.write_text(json.dumps(self._last_auto_check, ensure_ascii=False), encoding="utf-8")
         except OSError:
             return
+
+    def _save_reviews(self) -> None:
+        try:
+            self._review_path.parent.mkdir(parents=True, exist_ok=True)
+            self._review_path.write_text(json.dumps(self._reviews, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            return
+
+    def review(self, ticker: str) -> dict[str, Any]:
+        with self._lock:
+            return dict(self._reviews.get(ticker.upper(), {}))
 
     def companies(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -88,7 +108,7 @@ class AnalyzerService:
         return {"accepted": len(imported), "total": len(self._companies), "source": "MOEX ISS / TQBR", "note": "Цена и список загружены автоматически; категория, сектор и признаки методики требуют ручной проверки."}
 
     def import_blue_chips(self) -> dict[str, Any]:
-        imported = fetch_blue_chip_companies()
+        imported = fetch_blue_chip_companies(timeout_seconds=8)
         with self._lock:
             self._companies = {company.ticker: company for company in imported}
             self._short_debt = {ticker: item for ticker, item in self._short_debt.items() if ticker in self._companies}
@@ -164,21 +184,28 @@ class AnalyzerService:
         status_counts = {status: sum(item["status"] == status for item in scan["items"])
                          for status in ("review", "watch", "exclude_now", "unavailable")}
         h4_hints_available = sum(item.get("h4_trend_hint") is not None for item in scan["items"])
-        candidates = [
-            {
+        candidates = []
+        for item in scan["items"]:
+            if item["status"] != "review":
+                continue
+            pending = list(item.get("reasons", []))
+            if item.get("technical_target") is not None:
+                pending.append("технический ориентир цели есть; нужна независимая подтверждённая цель")
+            candidates.append({
                 "ticker": item["ticker"],
                 "name": item.get("name", item["ticker"]),
                 "sector": item.get("sector", "Не указан"),
                 "last_price": item.get("last_price"),
                 "technical_target": item.get("technical_target"),
                 "technical_potential_pct": item.get("technical_potential_pct"),
+                "technical_date": item.get("technical_date"),
                 "d1_confirmed": item.get("d1_confirmed"),
                 "h4_trend_hint": item.get("h4_trend_hint"),
-                "pending": item.get("reasons", []),
-            }
-            for item in scan["items"]
-            if item["status"] == "review"
-        ]
+                "volume_zone_hint_count": len(item.get("volume_zones", [])),
+                "annual_source_url": item.get("annual_source_url"),
+                "short_debt_source_found": bool(self._short_debt.get(item["ticker"])),
+                "pending": pending,
+            })
         response = {
             "scan": scan,
             "debt": debt,
@@ -216,21 +243,21 @@ class AnalyzerService:
         H4, Volume Profile and target price intentionally stay outside this
         batch run, so it produces a review queue rather than buy signals.
         """
-        imported = fetch_blue_chip_companies()
+        imported = fetch_blue_chip_companies(timeout_seconds=8)
         with self._lock:
             self._companies.update({company.ticker: company for company in imported})
         items: list[dict[str, Any]] = []
         for company in imported:
             try:
-                technical = fetch_daily_technical(company.ticker)
+                technical = fetch_daily_technical(company.ticker, timeout_seconds=8)
                 # The short intraday window is an aid for the chart review.
                 # Do not discard an otherwise usable D1/fundamental result if
                 # MOEX has not exposed enough recent H4 data for this ticker.
                 try:
-                    intraday = fetch_intraday_technical(company.ticker)
+                    intraday = fetch_intraday_technical(company.ticker, timeout_seconds=8)
                 except (URLError, TimeoutError, OSError, ValueError):
                     intraday = None
-                annual_series, source_url = fetch_annual_series(company.ticker)
+                annual_series, source_url = fetch_annual_series(company.ticker, timeout_seconds=8)
                 official = short_debt_from_official_source(company.ticker, timeout_seconds=8)
                 if official.ratios:
                     annual_series = dict(annual_series) | {"short_debt_ebitda": official.ratios}
@@ -263,6 +290,7 @@ class AnalyzerService:
                 items.append({
                     "ticker": company.ticker, "name": company.name, "sector": company.sector,
                     "last_price": company.last_price, "status": status, "title": title,
+                    "technical_date": technical.candle_date,
                     "technical_target": technical.recent_high_20,
                     "technical_potential_pct": round((technical.recent_high_20 / technical.close - 1) * 100, 2),
                     "d1_confirmed": technical.trend_confirmed, "fundamental_passed": fundamental,
@@ -291,6 +319,14 @@ class AnalyzerService:
                 company = self._companies.get(ticker)
             if company is None:
                 raise KeyError(f"Инструмент {ticker!r} не найден")
+        saved_review = self.review(company.ticker)
+        submitted_review = {key: payload[key] for key in REVIEW_KEYS if key in payload}
+        if submitted_review:
+            with self._lock:
+                saved_review |= submitted_review
+                self._reviews[company.ticker] = saved_review
+            self._save_reviews()
+        payload = saved_review | payload
         technical = fetch_daily_technical(company.ticker)
         intraday = fetch_intraday_technical(company.ticker)
         fundamentals = fetch_public_fundamentals(company.ticker)
@@ -345,4 +381,5 @@ class AnalyzerService:
         else:
             recommendation = ("watch", "Наблюдать", "В цепочке правил остались блокеры или уточнения.")
         response["recommendation"] = {"status": recommendation[0], "title": recommendation[1], "message": recommendation[2], "potential_pct": potential}
+        response["saved_review"] = saved_review
         return response

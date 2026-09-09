@@ -186,6 +186,7 @@ class RulesTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["status"], "review")
         self.assertEqual(result["items"][0]["technical_target"], 110)
         self.assertEqual(result["items"][0]["technical_potential_pct"], 0.0)
+        self.assertEqual(result["items"][0]["technical_date"], "2026-09-05")
         self.assertTrue(result["items"][0]["base_series_ready"])
         checked = service.companies()[0]
         self.assertEqual(checked["category"], result["items"][0]["category"])
@@ -240,6 +241,14 @@ class RulesTests(unittest.TestCase):
                 result = service.automatic_blue_chip_check()
             restarted = AnalyzerService(state_path=state_path)
             self.assertEqual(restarted.latest_automatic_check()["completed_at"], result["completed_at"])
+
+    def test_manual_review_survives_service_restart(self):
+        with TemporaryDirectory() as directory:
+            review_path = Path(directory) / "manual_reviews.json"
+            service = AnalyzerService(review_path=review_path)
+            service._reviews["TEST"] = {"h4_entry_zone": "100–105", "target_price": 120}
+            service._save_reviews()
+            self.assertEqual(AnalyzerService(review_path=review_path).review("test")["target_price"], 120)
 
 
 if __name__ == "__main__":

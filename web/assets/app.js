@@ -43,6 +43,19 @@ function announce(text) {
   node.classList.toggle('show', Boolean(text));
 }
 
+function applySavedReview(review = {}) {
+  $('#target-price').value = review.target_price ?? '';
+  $('#target-source').value = review.target_source ?? '';
+  $('#target-as-of').value = review.target_as_of ?? '';
+  $('#target-confirmed').checked = Boolean(review.target_confirmed);
+  $('#short-debt-ebitda').value = Array.isArray(review.short_debt_ebitda) ? review.short_debt_ebitda.join('; ') : (review.short_debt_ebitda ?? '');
+  $('#h4-confirmed').checked = Boolean(review.h4_confirmed);
+  $('#volume-confirmed').checked = Boolean(review.volume_profile_confirmed);
+  $('#h4-entry-zone').value = review.h4_entry_zone ?? '';
+  const zones = review.volume_zones_confirmed || [];
+  $('#volume-zone-one').value = zones[0] ?? ''; $('#volume-zone-two').value = zones[1] ?? '';
+}
+
 function renderCompanies() {
   const target = $('#companies');
   if (!state.companies.length) {
@@ -185,12 +198,15 @@ function automaticCheckBlock(data) {
   const candidates = data.candidates || (data.scan?.items || []).filter((item) => item.status === 'review');
   const candidateRows = candidates.map((item) => {
     const h4 = item.h4_trend_hint ? 'есть' : 'ещё нет';
+    const volumeHint = item.volume_zone_hint_count === 2 ? 'есть ориентир' : 'нет';
+    const debt = item.short_debt_source_found ? 'источник найден' : 'нужна сверка';
     const price = item.last_price == null ? '—' : item.last_price.toLocaleString('ru-RU');
     const target = item.technical_target == null ? '—' : item.technical_target.toLocaleString('ru-RU');
     const potential = item.technical_potential_pct == null ? '—' : `${item.technical_potential_pct.toLocaleString('ru-RU')}%`;
     const pending = ((item.pending || item.reasons || []).join('; ') || 'уточнить H4, объём и цель')
       .replaceAll('short_debt_ebitda', 'краткосрочный долг/EBITDA за два года');
-    return `<li><b>${item.ticker}</b> · ${item.sector || 'сектор не указан'}<br>Цена: ${price}; ориентир цели: ${target}; потенциал: ${potential}<br>D1: пройден; H4: ${h4}. Осталось: ${pending}<br><button class="secondary-action" data-ticker="${item.ticker}">Открыть проверку</button></li>`;
+    const source = item.annual_source_url ? `<a href="${item.annual_source_url}" target="_blank" rel="noreferrer">годовые МСФО</a>` : 'источник МСФО не найден';
+    return `<li class="candidate-card"><b>${item.ticker}</b> · ${item.sector || 'сектор не указан'}<br>Цена: ${price}; ориентир цели: ${target}; потенциал: ${potential}<div class="checklist"><span class="yes">D1 пройден</span><span class="${item.h4_trend_hint ? 'yes' : 'warning'}">H4: ${h4}</span><span class="${item.volume_zone_hint_count === 2 ? 'yes' : 'warning'}">2 зоны: ${volumeHint}</span><span class="${item.short_debt_source_found ? 'yes' : 'warning'}">долг: ${debt}</span></div><span class="form-note">Данные D1: ${item.technical_date || 'дата не передана'} · ${source}. Осталось: ${pending}</span><br><button class="secondary-action" data-ticker="${item.ticker}">Открыть проверку</button></li>`;
   }).join('');
   $('#result').className = 'verdict manual_review';
   $('#result').innerHTML = `<h3>Автопроверка завершена</h3>
@@ -388,9 +404,11 @@ $('#short-debt-scan').addEventListener('click', async () => {
   finally { button.disabled = false; button.textContent = 'Собрать краткосрочный долг'; }
 });
 
-$('#companies').addEventListener('click', (event) => {
+$('#companies').addEventListener('click', async (event) => {
   const button = event.target.closest('[data-ticker]'); if (!button) return;
   $('#ticker').value = button.dataset.ticker;
+  const response = await fetch(`/api/review/${button.dataset.ticker}`);
+  if (response.ok) applySavedReview(await response.json());
   $('#analysis').scrollIntoView({ behavior: 'smooth', block: 'start' });
   $('#analysis-form').requestSubmit();
 });

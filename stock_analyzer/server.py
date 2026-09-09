@@ -59,6 +59,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._send(200, self.service.latest_blue_chip_scan())
         elif path == "/api/companies":
             self._send(200, {"items": self.service.companies()})
+        elif path.startswith("/api/review/"):
+            self._send(200, self.service.review(path.rsplit("/", 1)[-1]))
         elif path in {"/", "/index.html"}:
             self._send_file("index.html")
         elif path.startswith("/assets/"):
