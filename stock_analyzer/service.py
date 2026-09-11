@@ -108,7 +108,7 @@ class AnalyzerService:
         return {"accepted": len(imported), "total": len(self._companies), "source": "MOEX ISS / TQBR", "note": "Цена и список загружены автоматически; категория, сектор и признаки методики требуют ручной проверки."}
 
     def import_blue_chips(self) -> dict[str, Any]:
-        imported = fetch_blue_chip_companies(timeout_seconds=8)
+        imported = fetch_blue_chip_companies(timeout_seconds=25)
         with self._lock:
             self._companies = {company.ticker: company for company in imported}
             self._short_debt = {ticker: item for ticker, item in self._short_debt.items() if ticker in self._companies}
@@ -249,16 +249,16 @@ class AnalyzerService:
         items: list[dict[str, Any]] = []
         for company in imported:
             try:
-                technical = fetch_daily_technical(company.ticker, timeout_seconds=8)
+                technical = fetch_daily_technical(company.ticker, timeout_seconds=25)
                 # The short intraday window is an aid for the chart review.
                 # Do not discard an otherwise usable D1/fundamental result if
                 # MOEX has not exposed enough recent H4 data for this ticker.
                 try:
-                    intraday = fetch_intraday_technical(company.ticker, timeout_seconds=8)
+                    intraday = fetch_intraday_technical(company.ticker, timeout_seconds=25)
                 except (URLError, TimeoutError, OSError, ValueError):
                     intraday = None
-                annual_series, source_url = fetch_annual_series(company.ticker, timeout_seconds=8)
-                official = short_debt_from_official_source(company.ticker, timeout_seconds=8)
+                annual_series, source_url = fetch_annual_series(company.ticker, timeout_seconds=25)
+                official = short_debt_from_official_source(company.ticker, timeout_seconds=25)
                 if official.ratios:
                     annual_series = dict(annual_series) | {"short_debt_ebitda": official.ratios}
                     with self._lock:
